@@ -1,8 +1,8 @@
 # Module Types for WebAssembly
 
 A proposal to enhance module types to include import/export names and define
-text format parse rules, so that module types can be written independently of
-module definition.
+text format syntax, so that module types can be written independently of
+module definitions.
 
 This proposal is backwards compatible, does not change the `.wasm` binary
 format and requires no changes to wasm consumers such as browsers.
@@ -65,7 +65,7 @@ frameworks like [ESM], where instantiation is performed by the loader,
 not by client modules, or for built-in modules like [WASI], where instantiation
 is logically performed by the host, the type of module *instances* may be
 what is actually needed for the toolchain. Thus, the proposal also defines
-**instance type** along with text format parse rules. 
+**instance type** along with text format syntax. 
 
 For example, the above module, when instantiated, would have an instance type
 that could be written in the text format as:
