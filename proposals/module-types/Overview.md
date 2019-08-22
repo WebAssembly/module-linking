@@ -80,9 +80,7 @@ that could be written in the text format as:
 Just as the current [text format conventions recommend `.wat`][WAT] as the
 extension of a file that contains a module definition, the proposal would
 include a new recommendation for text files containing module types or
-instance types.
-
-TODO: add a strawman recommendation (`.wmt`+`.wit`? or just share `.wit`?)
+instance types: `.wit`.
 
 
 [WASI]: https://github.com/webassembly/wasi
