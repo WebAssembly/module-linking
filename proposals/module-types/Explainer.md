@@ -124,7 +124,7 @@ regardless of which of its modules are shared with other programs.
 
 For example, it should be possible to take the static dependency graph of the
 application on the left, which contains two programs (`zipper` and `imgmgk`) and
-three shared moduels (`libc`, `libzip` and `libimg`), and create the
+three shared modules (`libc`, `libzip` and `libimg`), and create the
 dynamically-linked instance graph on the right at application runtime.
 
 <p align="center"><img src="./shared-everything-dynamic-linking.svg" width="600"></p>
@@ -511,7 +511,7 @@ Unlike most source-language nested functions/classes, nested modules have no
 special access to their parents' state. However, since modules and types are
 closed, stateless expressions and thus "sharing" is equivalent to duplication,
 nested modules can refer to their parents' types and modules via *aliases*. As
-syntactic sugar in the textual format, a nested mdoule can simply use the
+syntactic sugar in the textual format, a nested module can simply use the
 `$name` of the enclosing module/type:
 ```wasm
 (module
@@ -549,7 +549,7 @@ dependency graph and then bundling/linking that dependency graph into a single
 `.wasm` module for portable distribution.
 
 Additionally, on the Web and other hosts that provide runtime instantiation
-APIs, nested moduels allow an outer module to bundle module code that is to be
+APIs, nested modules allow an outer module to bundle module code that is to be
 instantiated dynamically by passing a first-class module reference (created via
 `ref.module`) to the runtime instantiation API.
 
