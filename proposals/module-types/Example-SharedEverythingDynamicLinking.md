@@ -264,7 +264,7 @@ to simply embed all dependencies into a containing bundle module:
 ```
 
 Note that, while the `libc` and `libzip` modules are shared, both `$zipper` and
-`$imgmk` get their own private, encapsulated instances of `libc` and `libzip.
+`$imgmk` get their own private, encapsulated instances of `libc` and `libzip`.
 
 Alternatively, a Web-targeted bundler (like webpack) could choose to take
 advantage of HTTP caching by using relative URLs that are fetched by the browser

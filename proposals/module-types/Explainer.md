@@ -23,7 +23,7 @@ modules to define, import and export modules and instances.
 Currently, WebAssembly modules have no way to define how they are to be
 instantiated and linked together without relying on host-specific conventions.
 Consequently, the only portable way to link modules today is to [statically link]
-them, in a langauge/toolchain-specific manner which prevents modular code
+them, in a language/toolchain-specific manner which prevents modular code
 reuse, leads to code duplication in production and keeps languages separate.
 We would like to enable a portable, host- and language-independent ecosystem of
 composable WebAssembly modules.
@@ -244,7 +244,7 @@ which is the form we'll mostly use in this document.
 
 In WebAssembly there is also the separate concept of a module *instance*,
 which is the result of [instantiating][Module Instantiation] a module with
-imports. An instance is mostly just the module type with the imports removed
+imports. An instance type is mostly just the module type with the imports removed
 (with the only future complication being [Type Imports] used in export
 signatures). For example, the above module, when instantiated, would have
 instance type:
@@ -535,7 +535,7 @@ syntactic sugar in the textual format, a nested module can simply use the
 ```
 The desugared form of `$child` would explicitly create the alias with a `type`
 definition which references the parent:
-```
+```wasm
 (module $Parent
   (type $WasiFile (instance $wasi-file
     (export "read" (func (param i32 i32 i32) (result i32)))
