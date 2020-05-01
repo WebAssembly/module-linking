@@ -9,7 +9,7 @@ modules to define, import and export modules and instances.
    2. [Module and Instance Types](#module-and-instance-types)
    3. [Instance Imports](#instance-imports)
    4. [Module Imports and Nested Instances](#module-imports-and-nested-instances)
-   5. [Module and Instance References](#module-and-instance-references)
+   5. [First-class Definition References](#first-class-definition-references)
    6. [Nested Modules](#nested-modules)
    7. [Module and Instance Exports](#module-and-instance-exports)
    8. [Summary](#summary)
@@ -423,7 +423,7 @@ creating nested instances. In general, with this proposal,
 potentially creating a *DAG* of instances, with `M`'s instance as the root. 
 
 
-### Module and Instance References
+### First-class Definition References
 
 The instruction `ref.instance` used in the previous section has the signature:
 ```wasm
@@ -486,6 +486,16 @@ expose runtime instantiation through *import APIs*. For example, using
 Thus, as a conservative first step toward runtime dynamic linking, this proposal
 includes `ref.module` and `ref.instance` in the general wasm instruction set and
 includes module and instance reference types in the general [`reftype`] set.
+
+Lastly, since modules can not just import individual functions, but also individual
+memories, tables and globals, new `ref.memory`, `ref.table` and `ref.global`
+instructions and reference types are added:
+```wasm
+ref.memory $memory : [] -> [ (ref (memory ...)) ]
+ref.table $table : [] -> [ (ref (table ...)) ]
+ref.global $global : [] -> [ (ref (global ...)) ]
+```
+(These instructions have been planned since the first Reference Types proposal.)
 
 
 ### Nested Modules
