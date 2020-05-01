@@ -191,23 +191,19 @@ Compiling with `clang -shared libimg.c` produces a wasm module of the shape:
 ```wat
 ;; libimg.wat
 (module
-  (type $Libc (instance
+  (import "libc" (instance $libc
     (export "memory" (memory 1))
     (export "malloc" (func $malloc (param i32) (result i32)))
   ))
-  (type $LibZip (instance
+  (import "libzip" (instance $libzip
     (export "zip" (func $zip (param i32 i32 i32) (result i32)))
   ))
 
-  (import "libc" (module $LIBC
-    (exports $Libc)
-  ))
-  (import "libzip" (module $LIBZIP
-    (import "libc" (instance (type $Libc)))
-    (exports $LibZip)
-  ))
-
   (func (export "compress") (param i32 i32 i32) (result i32)
+    ...
+    call $libc.$malloc
+    ...
+    call $libzip.$zip
     ...
   )
 )
