@@ -335,7 +335,7 @@ When `zipper.c` is compiled, it will include these versions in its imports:
 (module
   (type $Libc (instance
     (memory (export "memory") 1)
-    (func (export "malloc") (param i32) (result i32) ...impl)
+    (func (export "malloc") (param i32) (result i32))
   ))
 
   (import "libc-1.0.0" (module $LIBC
@@ -421,17 +421,21 @@ If cyclic dependencies are necessary, such cycles can be broken by:
 * converting calls along "back edges" into indirect calls (`call_indirect`) of
   an import const global `i32` index.
 
-For example, a cycle between modules `a` and `b` could be broken by having `b`
-directly import `a`:
+For example, a cycle between modules `a` and `b` could be broken by arbitrarily
+saying that `b` gets to directly import `a` and then routing `a`'s imports
+through the global `funcref` table via `call_indirect`. This is achieved by
+having `b` import `a` as a *module* and then, when `b` instantiates `a`, `b`
+supplies mutable `i32` globals containing the index of each function `a` wants
+to import of `b`'s. For example:
 ```wat
 ;; a.wat
 (module
   (type $Libc (instance ...))
   (import "libc" (instance (type $Libc)))
-  (import "b" (instance $b (export "bar" (global i32 $bar))))
+  (import "bar-index" (global $bar-index mut i32))
   (type $FooType (func))
   (func (export "foo")
-    (call_indirect $FooType (global.get $bar))
+    (call_indirect $FooType (global.get $bar-index))
   )
 )
 ```
@@ -442,27 +446,27 @@ directly import `a`:
   (import "libc" (module $LIBC (exports $Libc)))
   (instance $libc (instance.instantiate $LIBC))
 
-  (module $INDICES (global $bar (export "bar") i32))
-  (instance $indices (instance.instantiate $INDICES))
+  (global $bar-index mut i32)
 
   (import "./a.wasm" (module $A
     (import "libc" (instance (type $Libc)))
-    (import "indices" (instance (export "bar" (global i32))))
+    (import "bar-index" (global mut i32))))
     (export "foo" (func $foo))
   ))
-  (instance $a (instance.instantiate $A (ref.instance $libc) (ref.instance $indices)))
+  (instance $a (instance.instantiate $A (ref.instance $libc) (ref.global $bar-index)))
 
   ;; indirectly export bar to a:
   (func $bar ...)
   (elem (i32.const 0) $bar)
-  (func $start (global.set $indices.$bar (i32.const 0)))
+  (func $start (global.set $bar-index (i32.const 0)))
   (start $start)
 
-  (func (export "run")
+  (func $run (export "run")
     call $a.$foo
   )
 )
 ```
+Here, calling `$run` will successfully call from `b` into `a` back into `b`.
 
 
 ## Function Pointer Identity

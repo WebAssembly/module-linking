@@ -205,9 +205,9 @@ aren't explicitly represented in the text format. This proposal additionally
 gives module types a text format parse rule.
 
 The module type text format is derived from the existing module definition text
-format by simply dropping all internal details. This is symmetric to how
-function types are derived from function definitions by dropping function
-bodies. For example, this module:
+format (extended with single-level imports) by simply dropping all internal
+details. This is symmetric to how function types are derived from function
+definitions by dropping function bodies. For example, this module:
 ```wasm
 (module
   (memory (import "a") 1 2)
@@ -385,6 +385,11 @@ where
 * `$module` refers to a module (in the module index space) of type `$ModuleT`
 * the `n` operands `Tᵢ` match the `n` imports of `$ModuleT` in import vector order
 * `$InstanceT` is the instance type of `$ModuleT`
+
+Note that while `instance.instantiate` relies on the positional order of imports
+in the local type definition of `$ModuleT`, module subtyping is independent of
+order (exports are matched by string) and thus reordering the exports of a
+module definition will never break clients.
 
 Instance imports and definitions can also be used as operands to
 `instance.instantiate`. For example, this module imports a `wasi_file`
@@ -587,7 +592,7 @@ of module types and instance types.
 
 ### Summary
 
-To summarize the proposed changes:
+To summarize the proposed changes (all changes in both text and binary format):
 * The `module` field of [`import`] become optional (allowing single-level
   imports). (How to encode this in the [import section] is an interesting
   question.)
