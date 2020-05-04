@@ -95,7 +95,7 @@ implemented. Indeed, even `parent.wasm` doesn't know whether it received the
 host's native implementation of `wasi_file` or some other implementation
 supplied by another module that imports `parent.wasm` (hence the `?` in the
 diagram). As mentioned above, there may not even *be* a "native" implementation
-of `wasi_file`. Crtically, though, it is `parent.wasm` that gets to determine
+of `wasi_file`. Critically, though, it is `parent.wasm` that gets to determine
 which `wasi_file` instance `child.wasm` gets to import and `child.wasm` has
 no way to circumvent this.
 
