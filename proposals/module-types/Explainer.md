@@ -155,10 +155,14 @@ This proposal is checked against these requirements [below](#additional-requirem
 
 ## Proposed Additions
 
-The proposal introduces a set of additions to WebAssembly centered around giving
-modules the ability to import modules. Thus, while the proposal is named "Module
-Imports", there are actually several other additions. The complete list is
-summarized [at the end](#summary).
+The central idea of this proposal is to allow a client module to import its
+dependencies as *modules*. In contrast, today, modules can only import the
+exports of *already-created instances*. Importing dependencies as modules allows
+clients to control how the dependencies are instantiated (supplying the imports)
+and linked (exposing the exports) which in turn enables the advanced use cases
+mentioned above. In addition to the central addition of module imports, several
+other complementary additions are proposed to finish the picture. The complete
+list is summarized [at the end](#summary).
 
 
 ### Single-level Imports
@@ -287,7 +291,8 @@ includes a new recommendation for text files containing a bare module or
 instance type be suffixed `.wit`. `.wit` files can be used as part of the
 toolchain ecosystem for describing a module's interface without including its
 definition. For example, this can be used to generate compatible source-language
-declarations.
+declarations. Like `.wat` files, `.wit` files are not consumed directly by the
+host.
 
 Module and Instance types can also be used to describe the types of imports:
 
@@ -387,9 +392,10 @@ where
 * `$InstanceT` is the instance type of `$ModuleT`
 
 Note that while `instance.instantiate` relies on the positional order of imports
-in the local type definition of `$ModuleT`, module subtyping is independent of
-order (exports are matched by string) and thus reordering the exports of a
-module definition will never break clients.
+in `$ModuleT`, this order is with respect to the *local* type definition
+`$ModuleT`. At instantiation-time, module and instance subtyping is based solely
+on strings and thus reordering, adding exports or dropping imports will never
+break clients.
 
 Instance imports and definitions can also be used as operands to
 `instance.instantiate`. For example, this module imports a `wasi_file`
@@ -612,10 +618,10 @@ To summarize the proposed changes (all changes in both text and binary format):
   an `instance` type and an `init` expression which is validated to match.
 * A new `instance.instantiate` instruction is added which is only allowed in
   `instance` `init` expressions.
-* New `ref.instance` and `ref.module` instructions are added to the general
-  instruction set.
-* New module and instance reference types `(ref (module ...))`, `moduleref`,
-  `(ref (instance ..))` and `instanceref` are added to [`reftype`].
+* New `ref.instance`, `ref.module`, `ref.memory`, `ref.table` and `ref.global`
+  instructions are added to the general instruction set.
+* New module, instance, memory, table and global reference types are added to
+  [`reftype`].
 * New `module` and `instance` cases are added to [`exportdesc`].
 
 
@@ -659,16 +665,28 @@ in the DAG. The [ESM-integration] spec determines when to call
   instantiate its dependencies in a way that encapsulates state while sharing
   code.
 
-The addition of [single-level imports](#single-level-imports) does require a
-slight extension to ESM-integration though. For a single-level import:
-* If the import is of instance type, it should be treated the same way as a two-level
+With this division of labor, a root wasm module `M` loaded via ESM-integration
+can import all of its dependencies as *module imports*, using ESM-integration
+to fetch and cache the modules while still allowing `M` to completely control
+the instantiation and linking steps.
+
+In particular, ESM-integration would be extended to support this proposal so
+that, when a module `M` is loaded by ESM-integration, for single-level module
+imports:
+* the module import's string is [resolved] to a URL and fetched as usual
+* the response's `Content-Type` must be `application/wasm`
+* the fetched wasm module's imports are *not* recursively fetched as usual
+* the fetched wasm module is validated and decoded into a [`module`] which is:
+  * supplied as an arg to `module_instantiate(M, args)`
+  * stored in the [module map] for future sharing with other module imports
+
+More generally, when ESM-integration loads a module with a
+[single-level imports](#single-level-imports):
+* If the import is of module type, it is fetched as described above.
+* If the import is of instance type, it is treated the same way as a two-level
   import is today, with the imported instance type's exports serving as the
   second level.
-* If the import is of module type, then the fetched resource *must* be an actual
-  wasm module. This module is not instantiated, but rather cached *as a module*
-  in the [module map]. Other module imports of the same URL will thus be able to
-  share the (uninstantiated) module code.
-* Any other type of import is to be treated as a regular import of the 
+* Any other type of import is treated as a regular import of the
   [default export].
 
 With this extension, a single JS app will be able to load multiple wasm
@@ -699,6 +717,7 @@ transparently share library code as described in
 [Type Section]: https://webassembly.github.io/spec/core/binary/modules.html#binary-typesec
 [Import Section]: https://webassembly.github.io/spec/core/binary/modules.html#binary-importsec
 [constant initializer expression]: https://webassembly.github.io/spec/core/syntax/modules.html#syntax-global
+[`module`]: https://webassembly.github.io/spec/core/syntax/modules.html#syntax-module
 [`moduleinst`]: https://webassembly.github.io/spec/core/exec/runtime.html#module-instances
 [`module_instantiate`]: https://webassembly.github.io/spec/core/appendix/embedding.html#embed-module-instantiate
 [`moduleinst`]: https://webassembly.github.io/spec/core/exec/runtime.html#module-instances
@@ -723,3 +742,4 @@ transparently share library code as described in
 [Attenuate]: http://cap-lore.com/CapTheory/Patterns/Attenuation.html
 [Default Export]: https://developer.mozilla.org/en-US/docs/web/javascript/reference/statements/export#Description
 [Module Map]: https://html.spec.whatwg.org/multipage/webappapis.html#module-map
+[Resolved]: https://html.spec.whatwg.org/multipage/webappapis.html#resolve-a-module-specifier
