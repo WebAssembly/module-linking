@@ -360,9 +360,10 @@ text- and binary-format reuse.
 
 ### Module Imports and Nested Instances
 
-Symmetric to instances, modules can be imported via module type. Once a module
-is imported, it must be instantiated before it can be executed. This is achieved
-by creating *nested instances* via `instance` definitions. For example, in this
+Symmetric to other kinds of imports, a module is imported by giving an expected
+module type. Unlike instance imports, once a module is imported, it must be
+instantiated by the client before it can be executed. This is achieved by
+creating *nested instances* via `instance` definitions. For example, in this
 code:
 ```wasm
 (module
