@@ -383,8 +383,9 @@ the outer module imports a module `$M` and a function `$f` and then uses `$f` to
 instantiate `$m` producing an instance `$i`. `instance` definitions are created
 using [constant initializer expression], similar to `global` definitions. The
 `instance.instantiate` instruction introduced by this proposal is *only* allowed
-in constant initializer expressions, but could in the future be allowed as a
-normal instruction to enable runtime instantiation. Its signature is:
+in the constant initializer expressions of `instance` definitions, but could in
+the future be allowed as a normal instruction to enable runtime instantiation.
+Its signature is:
 ```
 instance.instantiate $module : [ (ref Tᵢ)ⁿ ] -> [ (ref $InstanceT) ]
 ```
@@ -604,8 +605,8 @@ To summarize the proposed changes (all changes in both text and binary format):
 * The `module` field of [`import`] become optional (allowing single-level
   imports). (How to encode this in the [import section] is an interesting
   question.)
-* New `module` and `instance` type constructors are added that may be used to
-  define types in the [type section].
+* New `module`, `instance`, `memory`, `table` and `global` type constructors are
+  added that may be used to define types in the [type section].
 * A new `alias` case is added to type definitions allowing the import of parent
   modules' type definitions.
 * New `module` and `instance` cases are added to [`importdesc`], with the
