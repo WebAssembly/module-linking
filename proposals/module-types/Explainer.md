@@ -637,13 +637,16 @@ Worked examples of the [above use cases](#use-cases) are given in separate docs:
 ## Additional Requirements Revisited
 
 Reconsidering the requirements stated [above](#additional-requirements):
-* **No GC dependency**: The lifetimes of nested instances are necessarily the
-  same as the lifetime of their parent instance. Thus, this proposal introduces
-  no new interesting lifetimes compared to the status quo today. Of course, if
-  GC is currently needed on a host to collect dead instances (as is the case,
-  e.g., on the Web), it will continue to. But if a host currently has
-  more-explicitly defined instance lifetimes today, that same scheme will
-  continue to work with this proposal.
+* **No GC dependency**: The instances that can be created by this proposal are
+  all necessarily kept alive by a parent instance. Thus, insofar as a host
+  is able to avoid GC in the status quo (without nested instances), a host can
+  continue to avoid the need for GC. Technically, a host could obtain a
+  reference to a nested instance, drop all references to its parent instances,
+  and thus be able to collect the unreachable parent instances are garbage.
+  However, this would only be an optional optimization and should never be
+  required for correct execution because there is a bounded amount of garbage
+  created. Moreover, hosts could continue to manage the lifetime of instances by
+  treating [stores] as the atomic unit of lifetime.
 * **Enable AOT compilation**: Nested instance definitions are declarative
   enough to allow an AOT compiler to trivially connect exports to imports
   to the same degree as a static linker, assuming it knows the resolution
@@ -729,6 +732,7 @@ transparently share library code as described in
 [`exportdesc`]: https://webassembly.github.io/spec/core/syntax/modules.html#syntax-exportdesc
 [`module`]: https://webassembly.github.io/spec/core/binary/modules.html#binary-module
 [`global`]: https://webassembly.github.io/spec/core/syntax/modules.html#syntax-global
+[`store`]: https://webassembly.github.io/spec/core/exec/runtime.html#syntax-store
 
 [Shared-Nothing Linking]: https://github.com/WebAssembly/interface-types/blob/master/proposals/interface-types/Explainer.md#enabling-shared-nothing-linking-of-webassembly-modules
 [Interface Types]: https://github.com/WebAssembly/interface-types/blob/master/proposals/interface-types/Explainer.md
