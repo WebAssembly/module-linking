@@ -533,9 +533,10 @@ space as module imports and thus can be instantiated the same way. For example:
 
 Unlike most source-language nested functions/classes, nested modules have no
 special access to their parents' state. However, since modules and types are
-closed, stateless expressions and thus "sharing" is equivalent to duplication,
-nested modules can refer to their parents' types and modules via *aliases*. As
-syntactic sugar in the textual format, a nested module can simply use the
+closed, stateless expressions which would otherwise have to be duplicated,
+sharing is allowed between children and parents via module and type *aliases*.
+
+As syntactic sugar in the textual format, a nested module can simply use the
 `$name` of the enclosing module/type:
 ```wasm
 (module
@@ -564,14 +565,17 @@ In the binary format, a type alias could be represented by a [De Bruijn index]
 relative to the sequence of parent modules and their respective module/type
 index spaces.
 
-Given the above, language-independent tools can easily merge multiple `.wasm`
-files into one `.wasm` file by performing simple transformations that do not
-require relocations or other fixup-enabling metadata. Thus, module imports and
-nested modules can serve as a language-independent basis for first expressing a
-module dependency graph and then bundling/linking that dependency graph into a
-single `.wasm` module for portable distribution.
+In general, language-independent tools can easily merge multiple `.wasm` files
+in a dependency graph into one `.wasm` file by performing simple transformations
+that do not require relocations or other fixup-enabling metadata. The reverse
+transformation is also simple and producer-toolchain-independent: a nested
+module of a `.wasm` file can be split out into a new `.wasm` file by duplicating
+aliases (which may involve duplicating type or module imports if the alias
+refers to one). Thus, module imports and nested modules can serve as a language-
+and toolchain-independent basis for first expressing a module dependency graph
+and then bundling/linking that dependency graph for distribution.
 
-Additionally, on the Web and other hosts that provide runtime instantiation
+Lastly, on the Web and other hosts that provide runtime instantiation
 APIs, nested modules allow an outer module to bundle module code that is to be
 instantiated dynamically by passing a first-class module reference (created via
 `ref.module`) to the runtime instantiation API.
