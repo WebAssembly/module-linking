@@ -273,15 +273,16 @@ example, an instance type can be defined:
 
 In many examples shown below, type definitions are needed for *both* a module
 type and the instance type produced when that module type is instantiated. In
-such cases, to avoid duplicating all the exports, a new `(exports $instanceType)`
-type expression is added which can be used to define module types. For example,
-here is the type of a module which implements the above-defined `$WasiFile`
-interface via Win32 operations:
+such cases, to avoid duplicating all the exports, a new "zero-level export" 
+`(export $InstanceType)` form is added which injects all the exports of
+`$InstanceType` into the containing module type. For example, here is the type
+of a module which implements the above-defined `$WasiFile` interface via Win32
+operations:
 ```wasm
 (module
   (import "Win32" "ReadFile" (func (param i32 i32 i32 i32) (result i32)))
   (import "Win32" "WriteFile" (func (param i32 i32 i32 i32) (result i32)))
-  (exports $WasiFile)
+  (export $WasiFile)
 )
 ```
 

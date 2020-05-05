@@ -58,7 +58,7 @@ We can now write the parent module by composing `virtualize.wasm` and
 
   (import "./virtualize.wasm" (module $VIRTUALIZE
     (import "wasi_file" (instance (type $WasiFile)))
-    (exports $WasiFile)
+    (export $WasiFile)
   ))
   (import "./child.wasm" (module $CHILD
     (import "wasi_file" (instance (type $WasiFile)))

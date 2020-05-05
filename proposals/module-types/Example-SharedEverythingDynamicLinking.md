@@ -125,11 +125,11 @@ When compiled with `clang zipper.c`, we get a `zipper.wasm` shaped like:
   ))
 
   (import "libc" (module $LIBC
-    (exports $Libc)
+    (export $Libc)
   ))
   (import "libzip" (module $LIBZIP
     (import "libc" (instance (type $Libc)))
-    (exports $LibZip)
+    (export $LibZip)
   ))
 
   (instance $libc (instance.instantiate $LIBC))
@@ -339,7 +339,7 @@ When `zipper.c` is compiled, it will include these versions in its imports:
   ))
 
   (import "libc-1.0.0" (module $LIBC
-    (exports $Libc)
+    (export $Libc)
   ))
   (import "libzip-3.4.5" (module $LIBZIP
     (import "libc-1.0.0" (instance (type $Libc)))
@@ -443,7 +443,7 @@ to import of `b`'s. For example:
 ;; b.wat
 (module
   (type $Libc (instance ...))
-  (import "libc" (module $LIBC (exports $Libc)))
+  (import "libc" (module $LIBC (export $Libc)))
   (instance $libc (instance.instantiate $LIBC))
 
   (global $bar-index mut i32)
