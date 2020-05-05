@@ -564,13 +564,12 @@ In the binary format, a type alias could be represented by a [De Bruijn index]
 relative to the sequence of parent modules and their respective module/type
 index spaces.
 
-Other than type/module sharing, which can easily be undone by duplication, a
-module A that imports module B is semantically equivalent to module A nesting
-module B. This means tools can merge multiple `.wasm` files into one `.wasm` by
-a trivial, language-independent transformation. Thus, module imports and nested
-modules can serve as a language-independent basis for first expressing a module
-dependency graph and then bundling/linking that dependency graph into a single
-`.wasm` module for portable distribution.
+Given the above, language-independent tools can easily merge multiple `.wasm`
+files into one `.wasm` file by performing simple transformations that do not
+require relocations or other fixup-enabling metadata. Thus, module imports and
+nested modules can serve as a language-independent basis for first expressing a
+module dependency graph and then bundling/linking that dependency graph into a
+single `.wasm` module for portable distribution.
 
 Additionally, on the Web and other hosts that provide runtime instantiation
 APIs, nested modules allow an outer module to bundle module code that is to be
