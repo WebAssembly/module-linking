@@ -65,8 +65,8 @@ We can now write the parent module by composing `virtualize.wasm` and
     (export "play" (func))
   ))
 
-  (instance $virt-wasi (instance.instantiate $VIRTUALIZE (ref.instance $real-file)))
-  (instance $child (instance.instantiate $CHILD (ref.instance $virt-wasi)))
+  (instance $virt-wasi (instantiate $VIRTUALIZE (instance $real-file)))
+  (instance $child (instantiate $CHILD (instance $virt-wasi)))
 
   (func (export "work")
     ...

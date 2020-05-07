@@ -132,8 +132,8 @@ When compiled with `clang zipper.c`, we get a `zipper.wasm` shaped like:
     (export $LibZip)
   ))
 
-  (instance $libc (instance.instantiate $LIBC))
-  (instance $libzip (instance.instantiate $LIBZIP (ref.instance $libc)))
+  (instance $libc (instantiate $LIBC))
+  (instance $libzip (instantiate $LIBZIP (instance $libc)))
 
   (func $main
     ...
@@ -158,8 +158,8 @@ with the rough shape:
 (module
   (module $LIBC ...copied inline)
   (module $LIBZIP ...copied inline)
-  (instance $libc (instance.instantiate $LIBC))
-  (instance $libzip (instance.instantiate $LIBZIP))
+  (instance $libc (instantiate $LIBC))
+  (instance $libzip (instantiate $LIBZIP))
   (func $main ...)
 )
 ```
@@ -231,9 +231,9 @@ main difference being the additional transitive dependency (`libzip`).
   (import "libzip" (module $LIBZIP ...))
   (import "libimg" (module $LIBIMG ...))
 
-  (instance $libc (instance.instantiate $LIBC))
-  (instance $libzip (instance.instantiate $LIBZIP (ref.instance $libc)))
-  (instance $libimg (instance.instantiate $LIBIMG (ref.instance $libc) (ref.instance $libzip)))
+  (instance $libc (instantiate $LIBC))
+  (instance $libzip (instantiate $LIBZIP (instance $libc)))
+  (instance $libimg (instantiate $LIBIMG (instance $libc) (instance $libzip)))
 
   (func $main
     ...
@@ -256,10 +256,8 @@ to simply embed all dependencies into a containing bundle module:
   (module $ZIPPER ...copied inline)
   (module $IMGMGK ...copied inline)
 
-  (instance $zipper (export "zipper")
-    (instance.instantiate $ZIPPER (ref.module $LIBC) (ref.module $LIBZIP)))
-  (instance $imgmgk (export "imgmgk")
-    (instance.instantiate $IMGMGK (ref.module $LIBC) (ref.module $LIBZIP) (ref.module $LIBIMG)))
+  (instance (export "zipper") (instantiate $ZIPPER (module $LIBC) (module $LIBZIP)))
+  (instance (export "imgmgk") (instantiate $IMGMGK (module $LIBC) (module $LIBZIP) (module $LIBIMG)))
 )
 ```
 
@@ -279,10 +277,8 @@ via [ESM-integration]:
   (import "./zipper.wasm" (module $ZIPPER ...))
   (import "./imgmgk.wasm" (module $IMGMGK ...))
 
-  (instance $zipper
-    (instance.instantiate $ZIPPER (ref.module $LIBC) (ref.module $LIBZIP)))
-  (instance $imgmgk
-    (instance.instantiate $IMGMGK (ref.module $LIBC) (ref.module $LIBZIP) (ref.module $LIBIMG)))
+  (instance (export "zipper") (instantiate $ZIPPER (module $LIBC) (module $LIBZIP)))
+  (instance (export "imgmgk") (instantiate $IMGMGK (module $LIBC) (module $LIBZIP) (module $LIBIMG)))
 )
 ```
 or some hybrid configuration which nests some modules and module-imports others
@@ -346,8 +342,8 @@ When `zipper.c` is compiled, it will include these versions in its imports:
     (export "zip" (func (param i32 i32 i32) (result i32)))
   ))
 
-  (instance $libc (instance.instantiate $LIBC))
-  (instance $libzip (instance.instantiate $LIBZIP (ref.instance $libc)))
+  (instance $libc (instantiate $LIBC))
+  (instance $libzip (instantiate $LIBZIP (instance $libc)))
   ...
 )
 ```
@@ -373,16 +369,16 @@ mentions two different version numbers and instance types of `libc`:
     (export "zip" (func (param i32 i32 i32) (result i32)))
   ))
 
-  (instance $libc (instance.instantiate $LIBC))
-  (instance $libzip (instance.instantiate $LIBZIP (ref.instance $libc)))
+  (instance $libc (instantiate $LIBC))
+  (instance $libzip (instantiate $LIBZIP (instance $libc)))
   ...
 )
 ```
 
 As you might hope, this module still validates without recompiling `libzip`
-because `instance.instantiate` performs a subtype check which ignores the import
-string `"libc-1.0.0"` (because import operands are supplied positionally) and
-the `libc-1.1.0` instance type is indeed a subtype of the `libc-1.0.0` instance
+because `instantiate` performs a subtype check which ignores the import string
+`"libc-1.0.0"` (because import operands are supplied positionally) and the
+`libc-1.1.0` instance type is indeed a subtype of the `libc-1.0.0` instance
 type.
 
 Now let's say there is a major `libc` version change and the instance type does
@@ -444,7 +440,7 @@ to import of `b`'s. For example:
 (module
   (type $Libc (instance ...))
   (import "libc" (module $LIBC (export $Libc)))
-  (instance $libc (instance.instantiate $LIBC))
+  (instance $libc (instantiate $LIBC))
 
   (global $bar-index mut i32)
 
@@ -453,7 +449,7 @@ to import of `b`'s. For example:
     (import "bar-index" (global mut i32))))
     (export "foo" (func $foo))
   ))
-  (instance $a (instance.instantiate $A (ref.instance $libc) (ref.global $bar-index)))
+  (instance $a (instantiate $A (instance $libc) (global $bar-index)))
 
   ;; indirectly export bar to a:
   (func $bar ...)

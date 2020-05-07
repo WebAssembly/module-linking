@@ -9,10 +9,9 @@ modules to define, import and export modules and instances.
    2. [Module and Instance Types](#module-and-instance-types)
    3. [Instance Imports](#instance-imports)
    4. [Module Imports and Nested Instances](#module-imports-and-nested-instances)
-   5. [First-class Definition References](#first-class-definition-references)
-   6. [Nested Modules](#nested-modules)
-   7. [Module and Instance Exports](#module-and-instance-exports)
-   8. [Summary](#summary)
+   5. [Nested Modules](#nested-modules)
+   6. [Module and Instance Exports](#module-and-instance-exports)
+   7. [Summary](#summary)
 5. [Use Cases Revisited](#use-cases-revisited)
 6. [Additional Requirements Revisited](#additional-requirements-revisited)
 7. [FAQ](#faq)
@@ -244,7 +243,15 @@ Just as with module definitions, the above module type is actually an
   (export "d" (func (result f32)))
 )
 ```
-which is the form we'll mostly use in this document.
+which is primarily used in this proposal.
+
+Although the text and binary format list imports and exports in a particular
+order, module types describe their imports and exports via *unordered maps*
+and thus two encoded module types that differ only by order are equivalent.
+Moreover, module subtyping compares imports and exports pairwise, by import
+name. Like function types, module subtyping is contravariant in imports and
+covariant in exports. Unlike function types, because imports and exports are
+unordered maps, superfluous import and export fields are ignored.
 
 In WebAssembly there is also the separate concept of a module *instance*,
 which is the result of [instantiating][Module Instantiation] a module with
@@ -258,6 +265,8 @@ instance type:
   (export "c" (func (result f32)))
 )
 ```
+Like module types, the exports of an instance type are unordered and instance
+subtyping is pairwise by name, ignoring superfluous exports.
 
 Just like function types, module and instance types can either be written
 "inline" or factored out into an explicit type definition that can be reused via
@@ -368,148 +377,70 @@ creating *nested instances* via `instance` definitions. For example, in this
 code:
 ```wasm
 (module
-  (import "m" (module $M
+  (import "M" (module $M
     (import "in" (func))
     (export "out" (func $out))
   ))
   (import "f" (func $f))
-  (instance $i (instance.instantiate $M (ref.func $f)))
+  (instance $i (instantiate $M (func $f)))
   (func (export "run")
     call $i.$out
   )
 )
 ```
 the outer module imports a module `$M` and a function `$f` and then uses `$f` to
-instantiate `$m` producing an instance `$i`. `instance` definitions are created
-using [constant initializer expression], similar to `global` definitions. The
-`instance.instantiate` instruction introduced by this proposal is *only* allowed
-in the constant initializer expressions of `instance` definitions, but could in
-the future be allowed as a normal instruction to enable runtime instantiation.
-Its signature is:
+instantiate `$M` producing an instance `$i`. `instance` definitions have the form:
 ```
-instance.instantiate $module : [ (ref Tᵢ)ⁿ ] -> [ (ref $InstanceT) ]
+instance-def  ::= (instance <id>? <instance-init>)
+instance-init ::= (instantiate <moduleidx> <instance-arg>*)
+instance-arg  ::= (func <funcidx>)
+                | (memory <memidx>)
+                | (table <tableidx>)
+                | (global <globalidx>)
+                | (instance <instanceidx>)
+                | (module <moduleidx>)
 ```
-where
-* `$module` refers to a module (in the module index space) of type `$ModuleT`
-* the `n` operands `Tᵢ` match the `n` imports of `$ModuleT` in import vector order
-* `$InstanceT` is the instance type of `$ModuleT`
+where `<instanceidx>` and `<moduleidx>` are new [indices] into the new module
+and instance [index spaces] created by module/instance imports/definitions. In
+the future, new productions could be added to `<instance-init>` allowing
+alternatives to `instantiate` for creating instances, such as directly from
+fields without an intermediate module.
 
-Note that while `instance.instantiate` relies on the positional order of imports
-in `$ModuleT`, this order is with respect to the *local* type definition
-`$ModuleT`. At instantiation-time, module and instance subtyping is based solely
-on strings and thus reordering, adding exports or dropping imports will never
-break clients.
+Validation requires that the sequence of `import-arg`s match the declared
+import args of `<moduleidx>` based on the order of imports in `<moduleidx>`'s
+(*locally-defined*) module type definition. As mentioned in 
+[Module and Instance Types](#module-and-instance-types), module subtyping
+(checked at instantiation time for `$M`) allows the actual imported module to
+have compatible imports and exports in any order. Thus, `instance` statements do
+not impose any ordering requirements on the actual imported modules.
 
-Instance imports and definitions can also be used as operands to
-`instance.instantiate`. For example, this module imports a `wasi_file`
-instance and passes it on to its child:
+Instances and modules can also be import arguments, allowing whole collections
+of fields to be passed as a single unit which can simplify linking in larger
+scenarios. For example, this module imports a `wasi_file` instance and passes
+it on to the child:
 ```wasm
 (module
   (type $WasiFile (instance
     (export "read" (func (param i32 i32 i32) (result i32)))
     (export "write" (func (param i32 i32 i32) (result i32)))
+    ...
   ))
   (import "wasi_file" (instance $wasi-file (type $WasiFile)))
-  (import "child" (module $child
+  (import "child" (module $CHILD
     (import "wasi_file" (instance (type $WasiFile)))
   ))
-  (instance (instance.instantiate $child (ref.instance $wasi-file)))
-)
-```
-Here, `ref.instance` is a new instruction symmetric to [`ref.func`], selecting an
-instance from the instance index space via a static index immediate. It will be
-discussed more in the next section.
-
-`instance.instantiate` allows its operands to be subtypes of the declared
-module import types. When the operands are of instance or module type, that
-means checking module/instance subtyping. Unlike with [GC types], where
-subtyping needs to imply memory layout, module and instance subtyping can be
-order-independent, matching up by import/export names instead.
-
-`instance.instantiate` can refer back to all instance imports and all preceding
-instance definitions, allowing the creation of arbitrary acyclic graphs of
-instances. The nested instances of a module `M` are instantiated during
-[`module_instantiate`]`(M)`, before the top-level `M`'s own [`moduleinst`] is
-created. Thus, `instance.instantiate` cannot refer to any functions, memories,
-tables or global defined by the top-level `M`, since they do not yet exist when
-creating nested instances. In general, with this proposal,
-`module_instantiate(M)` goes from always creating a single instance to
-potentially creating a *DAG* of instances, with `M`'s instance as the root. 
-
-
-### First-class Definition References
-
-The instruction `ref.instance` used in the previous section has the signature:
-```wasm
-ref.instance $instance : [] -> [ (ref $InstanceT) ]
-```
-where `$instance` refers to an instance (in the instance index space) of type
-`$InstanceT`. Types of the form `(ref (instance ...))` are a new kind of
-*instance reference type*.
-
-The proposal also adds a symmetric instruction for modules:
-```wasm
-ref.module $module : [] -> [ (ref $ModuleT) ]
-```
-where `$module` refers to a module (in the module index space) of type
-`$ModuleT`. Types of the form `(ref (module ...))` are a new kind of
-*module reference type*. (See the
-[shared-everything dynamic linking example](Example-SharedEverythingDynamicLinking.md)
-to see sample usage.)
-
-Similar to the subtype relationship that exists between typed function
-references and `funcref` in the [Function References] proposal, module reference
-types share a supertype `moduleref` and instance reference types share a
-supertype `instanceref`:
-```wasm
-(ref (func ...)) <: funcref
-(ref (module ...)) <: moduleref
-(ref (instance ...)) <: instanceref
-```
-
-The previous section noted that `instance.instantiate` is, in this proposal,
-only allowed in the constant initializer expressions of `instance` definitions.
-The immediate reason for this is the GC requirement stated [above](#additional-requirements):
-since instances can form graphs (via mutable tables and globals), a first-class
-`instance.instantiate` instruction would inherently require a garbage collection
-algorithm to collect dead instances. This could be added later on as part of a
-batch of GC features (viz., [GC types]) with a careful definition of what
-features are available on hosts that don't support GC. But for now, this proposal
-aims to be universally available.
-
-In contrast, `ref.module`/`ref.instance` and module/instance references have no
-such inherent GC requirement and would be useful in allowing hosts to optionally
-expose runtime instantiation through *import APIs*. For example, using
-[Interface Types] to express the signature more succinctly, a classic
-[`dlopen`]/[`dlsym`] interface could be approximated:
-```wasm
-(instance
-  (export "dlopen" (func
-    (param $module moduleref)
-    (param $imports (array (record (field "name" string) (field "value" anyref))))
-    (result instanceref)
-  ))
-  (export "dlsym" (func
-    (param $instance instanceref)
-    (param $symbol string)
-    (result funcref)
-  ))
+  (instance (instantiate $CHILD (instance $wasi-file)))
 )
 ```
 
-Thus, as a conservative first step toward runtime dynamic linking, this proposal
-includes `ref.module` and `ref.instance` in the general wasm instruction set and
-includes module and instance reference types in the general [`reftype`] set.
-
-Lastly, since modules can not just import individual functions, but also individual
-memories, tables and globals, new `ref.memory`, `ref.table` and `ref.global`
-instructions and reference types are added:
-```wasm
-ref.memory $memory : [] -> [ (ref (memory ...)) ]
-ref.table $table : [] -> [ (ref (table ...)) ]
-ref.global $global : [] -> [ (ref (global ...)) ]
-```
-(These instructions have been planned since the first Reference Types proposal.)
+The arguments of `instantiate` can refer to all imports (of all types), all
+module definitions and all preceding instance definitions. The nested instances
+of a module `M` are instantiated during [`module_instantiate`]`(M)`, before the
+top-level `M`'s own [`moduleinst`] is created. Thus, `instantiate` cannot refer
+to any functions, memories, tables or globals defined by `M`, since they do not
+yet exist. In general, with this proposal, `module_instantiate(M)` goes from
+always creating a single instance for `M` to creating an arbitrary *DAG* of
+instances, with `M`'s instance as the root. 
 
 
 ### Nested Modules
@@ -519,14 +450,14 @@ Symmetric to nested instances, modules can contain *nested modules* via
 space as module imports and thus can be instantiated the same way. For example:
 ```wasm
 (module
-  (module $child
+  (module $CHILD
     (func $hi (export "hi")
       ...
     )
   )
-  (instance $i (instance.instantiate $child))
+  (instance $child (instantiate $CHILD))
   (func (export "run")
-    call $i.$hi
+    call $child.$hi
   )
 )
 ```
@@ -575,11 +506,6 @@ refers to one). Thus, module imports and nested modules can serve as a language-
 and toolchain-independent basis for first expressing a module dependency graph
 and then bundling/linking that dependency graph for distribution.
 
-Lastly, on the Web and other hosts that provide runtime instantiation
-APIs, nested modules allow an outer module to bundle module code that is to be
-instantiated dynamically by passing a first-class module reference (created via
-`ref.module`) to the runtime instantiation API.
-
 
 ### Module and Instance Exports
 
@@ -608,26 +534,19 @@ To summarize the proposed changes (all changes in both text and binary format):
 * The `module` field of [`import`] become optional (allowing single-level
   imports). (How to encode this in the [import section] is an interesting
   question.)
-* New `module`, `instance`, `memory`, `table` and `global` type constructors are
-  added that may be used to define types in the [type section].
+* New `module` and `instance` type constructors are added that may be used to
+  define types in the [type section].
 * A new `alias` case is added to type definitions allowing the import of parent
   modules' type definitions.
-* New `module` and `instance` cases are added to [`importdesc`], with the
-  type indicated by `typeidx`, like `func`.
+* New `module` and `instance` cases are added to [`importdesc`], referencing
+  module and instance type definitions in the type section.
 * A new `module` section is added which contains a sequence of either module
   definitions or `alias` definitions (of parents' modules). In terms of the
   binary format, a nested module definition has the same binary format as a
   non-nested `.wasm` module. Thus, the [`module`] binary format production
   becomes recursive.
 * A new `instance` section is added which contains a sequence of instance
-  definitions. Like [`global`] definitions, an `instance` definition contains
-  an `instance` type and an `init` expression which is validated to match.
-* A new `instance.instantiate` instruction is added which is only allowed in
-  `instance` `init` expressions.
-* New `ref.instance`, `ref.module`, `ref.memory`, `ref.table` and `ref.global`
-  instructions are added to the general instruction set.
-* New module, instance, memory, table and global reference types are added to
-  [`reftype`].
+  definitions.
 * New `module` and `instance` cases are added to [`exportdesc`].
 
 
@@ -722,6 +641,7 @@ transparently share library code as described in
 [typeuse-abbrev]: https://webassembly.github.io/spec/core/text/modules.html#abbreviations
 [Module Instantiation]: https://webassembly.github.io/spec/core/exec/modules.html#instantiation
 [WAT]: https://webassembly.github.io/spec/core/text/conventions.html#conventions
+[Indices]: https://webassembly.github.io/spec/core/syntax/modules.html#indices
 [Index Spaces]: https://webassembly.github.io/spec/core/syntax/modules.html#indices
 [Type Section]: https://webassembly.github.io/spec/core/binary/modules.html#binary-typesec
 [Import Section]: https://webassembly.github.io/spec/core/binary/modules.html#binary-importsec
@@ -744,7 +664,6 @@ transparently share library code as described in
 [GC Types]: https://github.com/WebAssembly/gc/blob/master/proposals/gc
 [ESM-integration]: https://github.com/WebAssembly/esm-integration
 [Function References]: https://github.com/WebAssembly/function-references
-[`ref.func`]: https://github.com/WebAssembly/function-references/blob/master/proposals/function-references/Overview.md#functions
 
 [`dlopen`]: https://pubs.opengroup.org/onlinepubs/009695399/functions/dlopen.html
 [`dlsym`]: https://pubs.opengroup.org/onlinepubs/009695399/functions/dlsym.html
