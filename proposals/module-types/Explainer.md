@@ -570,9 +570,8 @@ of module types and instance types.
 
 ### Binary Format Considerations
 
-This proposal defines two new [sections] in the binary format: `module` and
-`instance`. These sections are placed right after the `import` section, such that
-the ordering of sections is:
+This proposal defines two new [sections] in the binary format: Module,
+ModuleCode and Instance. Their proposed ordering of sections is:
 1. Type Section
 2. Import Section
 3. Module Section
@@ -584,9 +583,9 @@ the ordering of sections is:
 9. Data Section
 
 The distinction between the Module and ModuleCode Sections is the same as the
-distinction between the Function and Code Sections: the Module section declares
-the module types of each nested module while the ModuleCode section provides the
-definition of each module. Module definitions in the ModuleCode section are
+distinction between the Function and Code Sections: the Module Section declares
+the module types of each nested module while the ModuleCode Section provides the
+definition of each module. Module definitions in the ModuleCode Section are
 decoded with the same [`module` binary format production] that decodes top-level
 modules, making `module` a recursive production. As with functions, splitting
 module types from definitions allows all modules to be decoded, validated and
@@ -600,23 +599,23 @@ This section ordering is implied by:
 * The exports of instance definitions in the Instance Section can be used in
   all succeeding sections (even, once instances can [export types], the Function
   Section).
-* Since a module's instance is instantiated, and therefore executed (via `start`
-  function) last, having Code after ModuleCode allows Code compilation to
-  potentially better overlap ModuleCode execution in streaming scenarios.
+* Since a module is instantiated and executed (via its `start` function) after
+  all its nested modules, having Code after ModuleCode allows Code compilation
+  to potentially better overlap ModuleCode execution in streaming scenarios.
 
 There are several kinds of `alias` definitions introduced above; they go in
 different sections:
-* Aliases of parent modules' types go in the Type section as a new kind of
+* Aliases of parent modules' types go in the Type Section as a new kind of
   type definition.
-* Aliases of parent modules' modules go in the Module section as a new kind of
+* Aliases of parent modules' modules go in the Module Section as a new kind of
   module definition.
 * Aliases of imported or nested instances' exports go in the Instance Section
   as a new kind of definition (of the aliased export's type).
 
-With aliases interleaved in the Instance section, implementing the validation
+With aliases interleaved in the Instance Section, implementing the validation
 rules for `instantiate` amounts to adding each instance or alias definition
 one-at-a-time to the appropriate index space (which will initially include all
-Type, Import and Module section definitions and nothing else), such that index
+Type, Import and Module Section definitions and nothing else), such that index
 space bounds checking implies the required acyclicy.
 
 
@@ -624,7 +623,7 @@ space bounds checking implies the required acyclicy.
 
 To summarize the proposed changes (all changes in both text and binary format):
 * The `module` field of [`import`] becomes optional (allowing single-level
-  imports). (How to encode this in the [import section] is an interesting
+  imports). (How to encode this in the [Import Section] is an interesting
   question.)
 * New `module` and `instance` type constructors are added that may be used to
   define types in the [type section].
@@ -632,9 +631,12 @@ To summarize the proposed changes (all changes in both text and binary format):
   modules' type definitions.
 * New `module` and `instance` cases are added to [`importdesc`], referencing
   module and instance type definitions in the type section.
-* A new Module/ModuleCode section pair is added which contains a sequence of
-  either module definitions or `alias` definitions.
-* A new `instance` section is added which contains a sequence of either instance
+* A new Module Section is added which contains a sequence of either module type
+  declarations for module definitions in the ModuleCode Section or `alias`
+  definitions.
+* A new ModuleCode Section is added which contains module definitions, encoded
+  using the same binary format as top-level modules.
+* A new Instance Section is added which contains a sequence of either instance
   definitions or `alias` definitions.
 * New `module` and `instance` cases are added to [`exportdesc`].
 
