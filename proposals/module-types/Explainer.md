@@ -11,7 +11,8 @@ modules to define, import and export modules and instances.
    4. [Module Imports and Nested Instances](#module-imports-and-nested-instances)
    5. [Nested Modules](#nested-modules)
    6. [Module and Instance Exports](#module-and-instance-exports)
-   7. [Summary](#summary)
+   7. [Binary Format Considerations](#binary-format-considerations)
+   8. [Summary](#summary)
 5. [Use Cases Revisited](#use-cases-revisited)
 6. [Additional Requirements Revisited](#additional-requirements-revisited)
 7. [FAQ](#faq)
@@ -541,6 +542,10 @@ module of a `.wasm` file can be split out into a new `.wasm` file by duplicating
 aliased definitions. Thus, nested modules can be a useful tool for packaging and
 bundling tools.
 
+In the future, nested modules may be independently useful for [feature testing]
+or supplying first-class module references (via `ref.module $module-index`) to
+run-time instantiation APIs.
+
 
 ### Module and Instance Exports
 
@@ -563,48 +568,56 @@ Therefore, module and instance types can appear in both the imports and exports
 of module types and instance types.
 
 
-### Binary format considerations
+### Binary Format Considerations
 
 This proposal defines two new [sections] in the binary format: `module` and
 `instance`. These sections are placed right after the `import` section, such that
 the ordering of sections is:
-1. `type`
-2. `import`
-3. `module`
-4. `instance`
-5. `function`
+1. Type Section
+2. Import Section
+3. Module Section
+4. Instance Section
+5. Function Section
 6. ...
+7. ModuleCode Section
+8. Code Section
+9. Data Section
 
-This ordering is implied by basic validation dependencies:
-* Instance definitions (in the `instance` section) depend on module definitions
-  (in the `module` section).
-* Module definitions depend on the `type` section and, later, with [Type Imports],
-  the `import` section.
-* The exports of instance definitions in the `instance` section can be used in
-  all succeeding sections (even, once instances can [export types], the `function`
-  section).
+The distinction between the Module and ModuleCode Sections is the same as the
+distinction between the Function and Code Sections: the Module section declares
+the module types of each nested module while the ModuleCode section provides the
+definition of each module. Module definitions in the ModuleCode section are
+decoded with the same [`module` binary format production] that decodes top-level
+modules, making `module` a recursive production. As with functions, splitting
+module types from definitions allows all modules to be decoded, validated and
+optimized in parallel.
 
-There are several kinds of `alias` definitions that go in different sections:
-* Aliases of parent modules' types go in the `type` section as a new kind of
+This section ordering is implied by:
+* Module definitions depend on the Type Section and, later, with [Type Imports],
+  the Import Section.
+* Instance definitions (in the Instance Section) depend on module types (in the
+  Module Section).
+* The exports of instance definitions in the Instance Section can be used in
+  all succeeding sections (even, once instances can [export types], the Function
+  Section).
+* Since a module's instance is instantiated, and therefore executed (via `start`
+  function) last, having Code after ModuleCode allows Code compilation to
+  potentially better overlap ModuleCode execution in streaming scenarios.
+
+There are several kinds of `alias` definitions introduced above; they go in
+different sections:
+* Aliases of parent modules' types go in the Type section as a new kind of
   type definition.
-* Aliases of parent modules' modules go in the `module` section as a new kind of
+* Aliases of parent modules' modules go in the Module section as a new kind of
   module definition.
-* Aliases of imported or nested instances' exports go in the `instance` section
+* Aliases of imported or nested instances' exports go in the Instance Section
   as a new kind of definition (of the aliased export's type).
 
-With aliases interleaved in the `instance` section, implementing the validation
-rules for `instantiate` mentioned above amounts to simply adding each instance
-or alias definition one-at-a-time to the appropriate index space (which will
-initially include all `type`, `import` and `module` section definitions and
-nothing else), such that index space bounds checking implies the required
-acyclicy.
-
-Lastly, module definitions in the `module` section are encoded with the same
-[`module` binary format production] that parses top-level modules, making
-`module` recursive. Once the module types of all preceding nested modules are
-known (which requires only inexpensive processing of a small fraction of the
-preceding byte stream), a nested module can be decoded, validated and optimized
-in parallel.
+With aliases interleaved in the Instance section, implementing the validation
+rules for `instantiate` amounts to adding each instance or alias definition
+one-at-a-time to the appropriate index space (which will initially include all
+Type, Import and Module section definitions and nothing else), such that index
+space bounds checking implies the required acyclicy.
 
 
 ### Summary
@@ -619,8 +632,8 @@ To summarize the proposed changes (all changes in both text and binary format):
   modules' type definitions.
 * New `module` and `instance` cases are added to [`importdesc`], referencing
   module and instance type definitions in the type section.
-* A new `module` section is added which contains a sequence of either module
-  definitions or `alias` definitions.
+* A new Module/ModuleCode section pair is added which contains a sequence of
+  either module definitions or `alias` definitions.
 * A new `instance` section is added which contains a sequence of either instance
   definitions or `alias` definitions.
 * New `module` and `instance` cases are added to [`exportdesc`].
@@ -738,6 +751,7 @@ transparently share library code as described in
 [GC Types]: https://github.com/WebAssembly/gc/blob/master/proposals/gc
 [ESM-integration]: https://github.com/WebAssembly/esm-integration
 [Function References]: https://github.com/WebAssembly/function-references
+[Feature Testing]: https://github.com/WebAssembly/conditional-sections/issues/22
 
 [`dlopen`]: https://pubs.opengroup.org/onlinepubs/009695399/functions/dlopen.html
 [`dlsym`]: https://pubs.opengroup.org/onlinepubs/009695399/functions/dlsym.html
