@@ -310,14 +310,25 @@ Module and Instance types can also be used to describe the types of imports:
 ### Instance Imports
 
 Just as a function, memory, table or global can be imported by specifying a
-function, memory, table or global type, modules or instances can be imported
-by specifying a module or instance type.
+function, memory, table or global type, instances can be imported by specifying
+an instance type.
 
 A single instance import is practically equivalent to individually importing
-all of its exports. Indeed, instances have no distinct identity: instances are
+all of its exports. Indeed, instances have no observable identity: instances are
 just [immutable tuples][`moduleinst`] containing the *addresses* of mutable
-things with identity (that could be independently imported) like memories and
-tables. For example, the instance import in this module:
+things with identity like memories and tables.
+
+For example, a wasm module you can write today as:
+```wasm
+(module
+  (import "i" "f1" (func $f1))
+  (import "i" "f2" (func $f2 (param i32)))
+  (func (export "run")
+    call $f1
+  )
+)
+```
+could instead be rewritten to use an instance import:
 ```wasm
 (module
   (import "i" (instance $i
@@ -329,52 +340,60 @@ tables. For example, the instance import in this module:
   )
 )
 ```
-is practically equivalent to individually importing the instance's exports:
+Here we take advantage of the syntactic sugar `$i.$f1` which implicitly
+adds a new kind of `alias` statement that injects the export `$f1` of `$i`
+into the containing module's function index space. A desugared version of the
+above module can be written:
 ```wasm
 (module
-  (import "i" "f1" (func $f1))
-  (import "i" "f2" (func $f2 (param i32)))
+  (import "i" (instance $i
+    (export "f1" (func $f1))
+    (export "f2" (func $f2 (param i32)))
+  ))
+  (func $f1 (alias $i $f1))
   (func (export "run")
     call $f1
   )
 )
 ```
-In particular, the exports of an instance import are injected into the
-appropriate [index spaces] of the containing instance, allowing them to be
-directly accessed by `call`, `i32.load`, `table.get`, etc. The `$i.$f` textual
-notation is new, but still encodes in the binary format as a single integer
-immediate. The reason for the preceding `$i.` is that a single instance type can
-be factored out into a type definition and reused multiple times:
+Repeated uses of the same `$i.$f1` path would reuse the same alias. Thus, path
+desugaring is symmetric to how multiple uses of inline function types
+[desugar][typeuse-abbrev] to the same function type definition.
+
+Aliases are of course not restricted to functions: all exportable definitions
+can be aliased. One situation where an explicit `alias` definition will be
+required is for a default memory or table: because there is no explicit `$i.$j`
+path used by instructions to refer to these, they must be explicitly aliased:
 ```wasm
 (module
-  (type $I (instance
-    (export "f" (func $f))
-    (export "g" (func $g))
+  (import "libc" (instance $libc
+    (export "memory" (memory $mem 1))
+    (export "table" (table $tbl 0 funcref))
   ))
-  (import "i1" (instance $i1 (type $I)))
-  (import "i2" (instance $i2 (type $I)))
-  (func (export "run")
-    call $i1.$f
-    call $i1.$g
-    call $i2.$f
-    call $i2.$g
+  (memory (alias $libc $mem)) ;; memory index 0 = default memory
+  (table (alias $libc $tbl)) ;; table index 0 = default table
+  (func
+    ...
+    i32.load  ;; accesses $libc.$mem
+    ...
+    table.get ;; accesses $libc.$tbl
+    ...
   )
 )
 ```
-In the following sections, the utility of instance imports will be more clear as
-a concise way to pass around whole instances instead of all their exports
-individually. But for now, one immediate benefit of instance imports is that
-they allow for module and export names to be maximally factored out for both
-text- and binary-format reuse.
+
+The benefit of instance imports is that they allow potentially-large groups of
+fields to be passed around as a single unit, which can be useful when linking
+significant dependencies. Also, practically, instance imports allow import
+strings to be factored in the text and binary formats, reducing duplication.
 
 
 ### Module Imports and Nested Instances
 
-Symmetric to other kinds of imports, a module is imported by giving an expected
-module type. Unlike instance imports, once a module is imported, it must be
-instantiated by the client before it can be executed. This is achieved by
-creating *nested instances* via `instance` definitions. For example, in this
-code:
+A module can similarly be imported by declaring the expected module type. Unlike
+instance imports, once a module is imported, it must be instantiated by the
+client before it can be executed. This is achieved by creating *nested
+instances* via `instance` definitions. For example, in this code:
 ```wasm
 (module
   (import "M" (module $M
@@ -415,9 +434,8 @@ have compatible imports and exports in any order. Thus, `instance` statements do
 not impose any ordering requirements on the actual imported modules.
 
 Instances and modules can also be import arguments, allowing whole collections
-of fields to be passed as a single unit which can simplify linking in larger
-scenarios. For example, this module imports a `wasi_file` instance and passes
-it on to the child:
+of fields to be passed as a single unit. For example, this module imports a
+`wasi_file` instance and passes it on to the child:
 ```wasm
 (module
   (type $WasiFile (instance
@@ -433,14 +451,36 @@ it on to the child:
 )
 ```
 
-The arguments of `instantiate` can refer to all imports (of all types), all
-module definitions and all preceding instance definitions. The nested instances
-of a module `M` are instantiated during [`module_instantiate`]`(M)`, before the
-top-level `M`'s own [`moduleinst`] is created. Thus, `instantiate` cannot refer
-to any functions, memories, tables or globals defined by `M`, since they do not
-yet exist. In general, with this proposal, `module_instantiate(M)` goes from
-always creating a single instance for `M` to creating an arbitrary *DAG* of
-instances, with `M`'s instance as the root. 
+The arguments of `instantiate` can only refer to imports, module definitions
+and the exports of preceding instance definitions (that have been made available
+via `alias` definitions). For example, two instances can be linked as follows:
+```wasm
+(module
+  (import "A" (module $A (export "f" (func $f))))
+  (import "B" (module $B (import "f" (func))))
+  (instance $a (instantiate $A))
+  (instance $b (instantiate $B (func $a.$f)))
+)
+```
+where, as described above, the path `$a.$f` is an abbreviation for:
+```wasm
+(module
+  (import "A" (module $A (export "f" (func $f))))
+  (import "B" (module $B (import "f" (func))))
+  (instance $a (instantiate $A))
+  (func $f (alias $a $f))
+  (instance $b (instantiate $B (func $f)))
+)
+```
+Notably, `instantiate` cannot refer to any other local definitions. The reason
+for this is that, when instantiating a module `M`, the nested instances of `M`
+are created before the [`moduleinst`] of `M` itself and thus local definitions
+do not exist when the nested instances are created.
+
+From the perspective of a WebAssembly [Embedding], this proposal changes
+[`module_instantiate`]`(M)` from always creating a single `moduleinst` to
+instead creating a DAG of `moduleinst`s, with `M`'s `moduleinst` as the returned
+root.
 
 
 ### Nested Modules
@@ -464,11 +504,11 @@ space as module imports and thus can be instantiated the same way. For example:
 
 Unlike most source-language nested functions/classes, nested modules have no
 special access to their parents' state. However, since modules and types are
-closed, stateless expressions which would otherwise have to be duplicated,
-sharing is allowed between children and parents via module and type *aliases*.
+closed, stateless expressions which would otherwise be duplicated, sharing is
+allowed between children and parents via module and type aliases.
 
-As syntactic sugar in the textual format, a nested module can simply use the
-`$name` of the enclosing module/type:
+For convenience in the text format, a module can directly use the identifier of
+an enclosing module's type or module definitions:
 ```wasm
 (module
   (type $WasiFile (instance $wasi-file
@@ -479,32 +519,27 @@ As syntactic sugar in the textual format, a nested module can simply use the
   )
 )
 ```
-The desugared form of `$child` would explicitly create the alias with a `type`
-definition which references the parent:
+This gets desugared into an explicit `alias` definition adding an entry to
+the child's type index space:
 ```wasm
 (module $Parent
   (type $WasiFile (instance $wasi-file
     (export "read" (func (param i32 i32 i32) (result i32)))
   ))
   (module $child
-    (type $WasiFile (alias $Parent.$WasiFile))
+    (type $WasiFile (alias $Parent $WasiFile))
     (import "wasi_file" (instance (type $WasiFile)))
   )
 )
 ```
-In the binary format, a type alias could be represented by a [De Bruijn index]
-relative to the sequence of parent modules and their respective module/type
-index spaces.
 
 In general, language-independent tools can easily merge multiple `.wasm` files
 in a dependency graph into one `.wasm` file by performing simple transformations
 that do not require relocations or other fixup-enabling metadata. The reverse
-transformation is also simple and producer-toolchain-independent: a nested
+transformation is also possible and producer-toolchain-independent: a nested
 module of a `.wasm` file can be split out into a new `.wasm` file by duplicating
-aliases (which may involve duplicating type or module imports if the alias
-refers to one). Thus, module imports and nested modules can serve as a language-
-and toolchain-independent basis for first expressing a module dependency graph
-and then bundling/linking that dependency graph for distribution.
+aliased definitions. Thus, nested modules can be a useful tool for packaging and
+bundling tools.
 
 
 ### Module and Instance Exports
@@ -528,10 +563,54 @@ Therefore, module and instance types can appear in both the imports and exports
 of module types and instance types.
 
 
+### Binary format considerations
+
+This proposal defines two new [sections] in the binary format: `module` and
+`instance`. These sections are placed right after the `import` section, such that
+the ordering of sections is:
+1. `type`
+2. `import`
+3. `module`
+4. `instance`
+5. `function`
+6. ...
+
+This ordering is implied by basic validation dependencies:
+* Instance definitions (in the `instance` section) depend on module definitions
+  (in the `module` section).
+* Module definitions depend on the `type` section and, later, with [Type Imports],
+  the `import` section.
+* The exports of instance definitions in the `instance` section can be used in
+  all succeeding sections (even, once instances can [export types], the `function`
+  section).
+
+There are several kinds of `alias` definitions that go in different sections:
+* Aliases of parent modules' types go in the `type` section as a new kind of
+  type definition.
+* Aliases of parent modules' modules go in the `module` section as a new kind of
+  module definition.
+* Aliases of imported or nested instances' exports go in the `instance` section
+  as a new kind of definition (of the aliased export's type).
+
+With aliases interleaved in the `instance` section, implementing the validation
+rules for `instantiate` mentioned above amounts to simply adding each instance
+or alias definition one-at-a-time to the appropriate index space (which will
+initially include all `type`, `import` and `module` section definitions and
+nothing else), such that index space bounds checking implies the required
+acyclicy.
+
+Lastly, module definitions in the `module` section are encoded with the same
+[`module` binary format production] that parses top-level modules, making
+`module` recursive. Once the module types of all preceding nested modules are
+known (which requires only inexpensive processing of a small fraction of the
+preceding byte stream), a nested module can be decoded, validated and optimized
+in parallel.
+
+
 ### Summary
 
 To summarize the proposed changes (all changes in both text and binary format):
-* The `module` field of [`import`] become optional (allowing single-level
+* The `module` field of [`import`] becomes optional (allowing single-level
   imports). (How to encode this in the [import section] is an interesting
   question.)
 * New `module` and `instance` type constructors are added that may be used to
@@ -541,12 +620,9 @@ To summarize the proposed changes (all changes in both text and binary format):
 * New `module` and `instance` cases are added to [`importdesc`], referencing
   module and instance type definitions in the type section.
 * A new `module` section is added which contains a sequence of either module
-  definitions or `alias` definitions (of parents' modules). In terms of the
-  binary format, a nested module definition has the same binary format as a
-  non-nested `.wasm` module. Thus, the [`module`] binary format production
-  becomes recursive.
-* A new `instance` section is added which contains a sequence of instance
-  definitions.
+  definitions or `alias` definitions.
+* A new `instance` section is added which contains a sequence of either instance
+  definitions or `alias` definitions.
 * New `module` and `instance` cases are added to [`exportdesc`].
 
 
@@ -635,7 +711,6 @@ transparently share library code as described in
 [Semantic Phases]: https://webassembly.github.io/spec/core/intro/overview.html#semantic-phases
 [JS API]: https://webassembly.github.io/spec/js-api/index.html
 [`instantiate`]: https://webassembly.github.io/spec/js-api/index.html#dom-webassembly-instantiate-moduleobject-importobject
-[`reftype`]: https://webassembly.github.io/reference-types/core/syntax/types.html#syntax-reftype
 [Module Validation]: https://webassembly.github.io/spec/core/valid/modules.html#valid-module
 [import-abbrev]: https://webassembly.github.io/spec/core/text/modules.html#id1
 [typeuse-abbrev]: https://webassembly.github.io/spec/core/text/modules.html#abbreviations
@@ -643,23 +718,22 @@ transparently share library code as described in
 [WAT]: https://webassembly.github.io/spec/core/text/conventions.html#conventions
 [Indices]: https://webassembly.github.io/spec/core/syntax/modules.html#indices
 [Index Spaces]: https://webassembly.github.io/spec/core/syntax/modules.html#indices
+[Sections]: https://webassembly.github.io/spec/core/binary/modules.html#sections
 [Type Section]: https://webassembly.github.io/spec/core/binary/modules.html#binary-typesec
 [Import Section]: https://webassembly.github.io/spec/core/binary/modules.html#binary-importsec
-[constant initializer expression]: https://webassembly.github.io/spec/core/syntax/modules.html#syntax-global
+[Embedding]: https://webassembly.github.io/spec/core/appendix/embedding.html
 [`module`]: https://webassembly.github.io/spec/core/syntax/modules.html#syntax-module
 [`moduleinst`]: https://webassembly.github.io/spec/core/exec/runtime.html#module-instances
 [`module_instantiate`]: https://webassembly.github.io/spec/core/appendix/embedding.html#embed-module-instantiate
-[`moduleinst`]: https://webassembly.github.io/spec/core/exec/runtime.html#module-instances
 [`import`]: https://webassembly.github.io/spec/core/syntax/modules.html#syntax-import
 [`importdesc`]: https://webassembly.github.io/spec/core/syntax/modules.html#syntax-importdesc
 [`exportdesc`]: https://webassembly.github.io/spec/core/syntax/modules.html#syntax-exportdesc
-[`module`]: https://webassembly.github.io/spec/core/binary/modules.html#binary-module
-[`global`]: https://webassembly.github.io/spec/core/syntax/modules.html#syntax-global
-[`store`]: https://webassembly.github.io/spec/core/exec/runtime.html#syntax-store
+[`module` binary format production]: https://webassembly.github.io/spec/core/binary/modules.html#binary-module
 
 [Shared-Nothing Linking]: https://github.com/WebAssembly/interface-types/blob/master/proposals/interface-types/Explainer.md#enabling-shared-nothing-linking-of-webassembly-modules
 [Interface Types]: https://github.com/WebAssembly/interface-types/blob/master/proposals/interface-types/Explainer.md
 [Type Imports]: https://github.com/WebAssembly/proposal-type-imports/blob/master/proposals/type-imports/Overview.md
+[Export Types]: https://github.com/WebAssembly/proposal-type-imports/blob/master/proposals/type-imports/Overview.md#exports
 [Multi-Memory]: https://github.com/webassembly/multi-memory
 [GC Types]: https://github.com/WebAssembly/gc/blob/master/proposals/gc
 [ESM-integration]: https://github.com/WebAssembly/esm-integration

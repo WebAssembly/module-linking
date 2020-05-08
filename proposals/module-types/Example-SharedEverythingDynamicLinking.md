@@ -83,9 +83,10 @@ produces a `libzip.wasm` of the form:
 ;; libzip.wat
 (module
   (import "libc" (instance $libc
-    (export "memory" (memory 1))
+    (export "memory" (memory $memory 1))
     (export "malloc" (func $malloc (param i32) (result i32)))
   ))
+  (memory (alias $libc $memory))  ;; default memory b/c index 0
   (func (export "zip") (param i32 i32 i32) (result i32)
     ...
     call $libc.$malloc
@@ -117,7 +118,7 @@ When compiled with `clang zipper.c`, we get a `zipper.wasm` shaped like:
 ;; zipper.wat
 (module
   (type $Libc (instance
-    (export "memory" (memory 1))
+    (export "memory" (memory $memory 1))
     (export "malloc" (func $malloc (param i32) (result i32)))
   ))
   (type $LibZip (instance
@@ -135,6 +136,7 @@ When compiled with `clang zipper.c`, we get a `zipper.wasm` shaped like:
   (instance $libc (instantiate $LIBC))
   (instance $libzip (instantiate $LIBZIP (instance $libc)))
 
+  (memory (alias $libc $memory))
   (func $main
     ...
     call $libc.$malloc
@@ -192,13 +194,14 @@ Compiling with `clang -shared libimg.c` produces a wasm module of the shape:
 ;; libimg.wat
 (module
   (import "libc" (instance $libc
-    (export "memory" (memory 1))
+    (export "memory" (memory $memory 1))
     (export "malloc" (func $malloc (param i32) (result i32)))
   ))
   (import "libzip" (instance $libzip
     (export "zip" (func $zip (param i32 i32 i32) (result i32)))
   ))
 
+  (memory (alias $libc $memory))
   (func (export "compress") (param i32 i32 i32) (result i32)
     ...
     call $libc.$malloc
