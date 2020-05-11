@@ -1,4 +1,4 @@
-This explainer introduces the Module Imports proposal, which allows WebAssembly
+This explainer introduces the Module Linking proposal, which allows WebAssembly
 modules to define, import and export modules and instances.
 
 1. [Problem](#problem)
@@ -672,7 +672,7 @@ Reconsidering the requirements stated [above](#additional-requirements):
 
 ### How does this relate to ESM-integration?
 
-The Module Imports proposal extends the behavior of [`module_instantiate`]`(M, args)`
+The Module Linking proposal extends the behavior of [`module_instantiate`]`(M, args)`
 to potentially instantiate a small, encapsulated DAG of instances rooted at
 `M`'s instance, with `M` being in charge of distributing `args` to its children
 in the DAG. The [ESM-integration] spec determines when to call
@@ -680,7 +680,7 @@ in the DAG. The [ESM-integration] spec determines when to call
 `args`. Thus, the two proposals are naturally complementary:
 * ESM-integration defines how a root wasm module imports host dependencies
   (where every module in the ESM [module map] is considered a host dependency).
-* The wasm Module Imports proposal defines how a wasm module can privately
+* The Module Linking proposal defines how a wasm module can privately
   instantiate its dependencies in a way that encapsulates state while sharing
   code.
 

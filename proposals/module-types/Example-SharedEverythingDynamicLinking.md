@@ -4,7 +4,7 @@ This document walks through the
 [Shared-Everything Dynamic Linking](Explainer.md#shared-everything-dynamic-linking)
 use case. One high-level point to make before starting is that the scheme
 outlined below avoids the need for any sort of runtime loader (like `ld.so`).
-Rather, Module Imports proposal is used in such a way that the wasm engine ends
+Rather, Module Linking proposal is used in such a way that the wasm engine ends
 up doing everything.
 
 As with native, shared-everything dynamic linking is rather involved, requiring
@@ -408,7 +408,7 @@ embedding and propagating version numbers, semver *range patterns* may need to
 be specified for each dependency to provide developers finer-grained control
 over how the final version is chosen. Any such scheme would need to be tailored
 to a higher-level layer of tooling and should be able to built on the basic
-primitives of the Module Imports proposal, similar to the simplistic scheme
+primitives of the Module Linking proposal, similar to the simplistic scheme
 shown above.
 
 ## Cyclic Dependencies
