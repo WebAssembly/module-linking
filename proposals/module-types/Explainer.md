@@ -453,8 +453,9 @@ of fields to be passed as a single unit. For example, this module imports a
 ```
 
 The arguments of `instantiate` can only refer to imports, module definitions
-and the exports of preceding instance definitions (that have been made available
-via `alias` definitions). For example, two instances can be linked as follows:
+preceding instance definition and exports of preceding instances that have been
+made available via `alias` definitions. For example, two instances can be linked
+as follows:
 ```wasm
 (module
   (import "A" (module $A (export "f" (func $f))))
@@ -473,10 +474,11 @@ where, as described above, the path `$a.$f` is an abbreviation for:
   (instance $b (instantiate $B (func $f)))
 )
 ```
-Notably, `instantiate` cannot refer to any other local definitions. The reason
-for this is that, when instantiating a module `M`, the nested instances of `M`
-are created before the [`moduleinst`] of `M` itself and thus local definitions
-do not exist when the nested instances are created.
+Notably, `instantiate` cannot refer to any kind of local definition other than
+those mentioned above. The reason for this is that, when instantiating a module
+`M`, the nested instances of `M` are created before the [`moduleinst`] of `M`
+itself and thus local definitions do not exist when the nested instances are
+created.
 
 From the perspective of a WebAssembly [Embedding], this proposal changes
 [`module_instantiate`]`(M)` from always creating a single `moduleinst` to
