@@ -262,8 +262,8 @@ signatures). For example, the above module, when instantiated, would have
 instance type:
 ```wasm
 (instance
-  (export "b" (table 1 funcref))
-  (export "c" (func (result f32)))
+  (export "c" (table 1 funcref))
+  (export "d" (func (result f32)))
 )
 ```
 Like module types, the exports of an instance type are unordered and instance
