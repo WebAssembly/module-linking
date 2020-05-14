@@ -246,13 +246,14 @@ Just as with module definitions, the above module type is actually an
 ```
 which is primarily used in this proposal.
 
-Although the text and binary format list imports and exports in a particular
-order, module types describe their imports and exports via *unordered maps*
-and thus two encoded module types that differ only by order are equivalent.
-Moreover, module subtyping compares imports and exports pairwise, by import
-name. Like function types, module subtyping is contravariant in imports and
-covariant in exports. Unlike function types, because imports and exports are
-unordered maps, superfluous import and export fields are ignored.
+Although module types list imports and exports in a particular order, module
+*subtyping* allows a supplied module definition's to have a different order as
+long as all the fields are present. Moreover, module subtyping is covariant in
+exports and contravariant in imports (including allowing a subtype to have more
+expors and fewer imports than the supertype). These permissive subtyping rules
+provide modules additional flexibility to evolve without breaking existing
+clients. Since module types are checked at instantiation-time, this extra
+flexibility shouldn't affect runtime performance.
 
 In WebAssembly there is also the separate concept of a module *instance*,
 which is the result of [instantiating][Module Instantiation] a module with
@@ -266,8 +267,8 @@ instance type:
   (export "d" (func (result f32)))
 )
 ```
-Like module types, the exports of an instance type are unordered and instance
-subtyping is pairwise by name, ignoring superfluous exports.
+Like module types, the exports of an instance type are ordered, but instance
+subtyping allows arbitrary reordering and compatible extension.
 
 Just like function types, module and instance types can either be written
 "inline" or factored out into an explicit type definition that can be reused via
@@ -428,11 +429,11 @@ fields without an intermediate module.
 
 Validation requires that the sequence of `import-arg`s match the declared
 import args of `<moduleidx>` based on the order of imports in `<moduleidx>`'s
-(*locally-defined*) module type definition. As mentioned in 
-[Module and Instance Types](#module-and-instance-types), module subtyping
-(checked at instantiation time for `$M`) allows the actual imported module to
-have compatible imports and exports in any order. Thus, `instance` statements do
-not impose any ordering requirements on the actual imported modules.
+module type definition. As mentioned in [Module and Instance Types](#module-and-instance-types),
+module subtyping (checked at instantiation time for `$M`) allows the actual
+imported module to have compatible imports and exports in any order. Thus,
+`instance` statements do not impose any ordering requirements on the actual
+imported modules.
 
 Instances and modules can also be import arguments, allowing whole collections
 of fields to be passed as a single unit. For example, this module imports a
