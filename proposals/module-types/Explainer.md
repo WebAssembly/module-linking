@@ -365,7 +365,7 @@ desugaring is symmetric to how multiple uses of inline function types
 Aliases are of course not restricted to functions: all exportable definitions
 can be aliased. One situation where an explicit `alias` definition will be
 required is for a default memory or table: because there is no explicit `$i.$j`
-path used by instructions to refer to these, they must be explicitly aliased:
+path used by instructions to refer to defaults, they must be explicitly aliased:
 ```wasm
 (module
   (import "libc" (instance $libc
@@ -435,9 +435,9 @@ imported module to have compatible imports and exports in any order. Thus,
 `instance` statements do not impose any ordering requirements on the actual
 imported modules.
 
-Instances and modules can also be import arguments, allowing whole collections
-of fields to be passed as a single unit. For example, this module imports a
-`wasi_file` instance and passes it on to the child:
+Instances can also be supplied as arguments to `instantiate`, allowing whole
+collections of fields to be passed as a single unit. For example, this module
+imports a `wasi_file` instance and passes it on to the child:
 ```wasm
 (module
   (type $WasiFile (instance
