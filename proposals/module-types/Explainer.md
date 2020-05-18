@@ -7,7 +7,7 @@ modules to define, import and export modules and instances.
 4. [Proposed Additions](#proposed-additions)
    1. [Single-level Imports](#single-level-imports)
    2. [Module and Instance Types](#module-and-instance-types)
-   3. [Instance Imports](#instance-imports)
+   3. [Instance Imports and Aliases](#instance-imports-and-aliases)
    4. [Module Imports and Nested Instances](#module-imports-and-nested-instances)
    5. [Nested Modules](#nested-modules)
    6. [Module and Instance Exports](#module-and-instance-exports)
@@ -309,7 +309,7 @@ host.
 Module and Instance types can also be used to describe the types of imports:
 
 
-### Instance Imports
+### Instance Imports and Aliases
 
 Just as a function, memory, table or global can be imported by specifying a
 function, memory, table or global type, instances can be imported by specifying
@@ -343,37 +343,39 @@ could instead be rewritten to use an instance import:
 )
 ```
 Here we take advantage of the syntactic sugar `$i.$f1` which implicitly
-adds a new kind of `alias` statement that injects the export `$f1` of `$i`
-into the containing module's function index space. A desugared version of the
-above module can be written:
+creates a new kind of definition added by this proposal called an `alias`.
+A desugared version of the same module can be written:
 ```wasm
 (module
   (import "i" (instance $i
     (export "f1" (func $f1))
     (export "f2" (func $f2 (param i32)))
   ))
-  (func $f1 (alias $i $f1))
+  (alias $i.f1 (func $i $f1))
   (func (export "run")
-    call $f1
+    call $i.f1
   )
 )
 ```
-Repeated uses of the same `$i.$f1` path would reuse the same alias. Thus, path
-desugaring is symmetric to how multiple uses of inline function types
-[desugar][typeuse-abbrev] to the same function type definition.
+`alias` definitions allow a module to inject definitions from other places into
+its own index spaces. In this case, the `alias` injects the `f1` export
+of `i` into the module's function index space. Repeated uses of the same
+`$i.$f1` path would reuse the same alias. Thus, path desugaring is symmetric to
+how multiple uses of inline function types [desugar][typeuse-abbrev] to the same
+function type definition.
 
-Aliases are of course not restricted to functions: all exportable definitions
-can be aliased. One situation where an explicit `alias` definition will be
-required is for a default memory or table: because there is no explicit `$i.$j`
-path used by instructions to refer to defaults, they must be explicitly aliased:
+Aliases are not restricted to functions: all exportable definitions can be
+aliased. One situation where an explicit `alias` definition will be required is
+for a default memory or table: because there is no explicit `$i.$j` path used by
+instructions to refer to defaults, they must be explicitly aliased:
 ```wasm
 (module
   (import "libc" (instance $libc
     (export "memory" (memory $mem 1))
     (export "table" (table $tbl 0 funcref))
   ))
-  (memory (alias $libc $mem)) ;; memory index 0 = default memory
-  (table (alias $libc $tbl)) ;; table index 0 = default table
+  (alias (memory $libc $mem)) ;; memory index 0 = default memory
+  (alias (table $libc $tbl)) ;; table index 0 = default table
   (func
     ...
     i32.load  ;; accesses $libc.$mem
@@ -421,7 +423,7 @@ instance-arg  ::= (func <funcidx>)
                 | (instance <instanceidx>)
                 | (module <moduleidx>)
 ```
-where `<instanceidx>` and `<moduleidx>` are new [indices] into the new module
+where `<instanceidx>` and `<moduleidx>` are indices into the new module
 and instance [index spaces] created by module/instance imports/definitions. In
 the future, new productions could be added to `<instance-init>` allowing
 alternatives to `instantiate` for creating instances, such as directly from
@@ -453,34 +455,33 @@ imports a `wasi_file` instance and passes it on to the child:
 )
 ```
 
-The arguments of `instantiate` can only refer to imports, module definitions
-preceding instance definition and exports of preceding instances that have been
-made available via `alias` definitions. For example, two instances can be linked
-as follows:
+In general, the arguments of `instantiate` can refer to any preceding type,
+import, module, instance or alias definition. This includes all imports and
+the local definitions that precede the `instantiate` in module order. For
+example, the following module (with desugared aliases) validates:
 ```wasm
 (module
-  (import "A" (module $A (export "f" (func $f))))
-  (import "B" (module $B (import "f" (func))))
-  (instance $a (instantiate $A))
-  (instance $b (instantiate $B (func $a.$f)))
+  (import "a" (instance $a (export "f" (func $f))))
+  (import "B" (module $B (import "f" (func)) (export "g" (func $g))))
+  (alias $a.f (func $a $f))
+  (instance $b1 (instantiate $B (func $a.f)))
+  (alias $b1.g (func $b1 $g))
+  (instance $b2 (instantiate $B (func $b1.g)))
 )
 ```
-where, as described above, the path `$a.$f` is an abbreviation for:
-```wasm
-(module
-  (import "A" (module $A (export "f" (func $f))))
-  (import "B" (module $B (import "f" (func))))
-  (instance $a (instantiate $A))
-  (func $f (alias $a $f))
-  (instance $b (instantiate $B (func $f)))
-)
-```
-Notably, `instantiate` cannot refer to any kind of local definition other than
-those mentioned above. The reason for this is that, when instantiating a module
+Notably, `instantiate` cannot refer to any local function, memory, table or
+global definitions. The reason for this is that, when instantiating a module
 `M`, the nested instances of `M` are created before the [`moduleinst`] of `M`
-itself and thus local definitions do not exist when the nested instances are
-created.
-
+itself and, thus, local function, memory, table and global definitions do not
+exist when the nested instances are created. Thus, for example, the following
+module wouldn't validate.
+```wasm
+(module
+  (import "A" (module $A (import "f" (func))))
+  (func $f)
+  (instance $a (instantiate $A (func $f))) ;; error, $f not visible to instantiate
+)
+```
 From the perspective of a WebAssembly [Embedding], this proposal changes
 [`module_instantiate`]`(M)` from always creating a single `moduleinst` to
 instead creating a DAG of `moduleinst`s, with `M`'s `moduleinst` as the returned
@@ -531,7 +532,7 @@ the child's type index space:
     (export "read" (func (param i32 i32 i32) (result i32)))
   ))
   (module $child
-    (type $WasiFile (alias $Parent $WasiFile))
+    (alias $WasiFile (type $Parent $WasiFile))
     (import "wasi_file" (instance (type $WasiFile)))
   )
 )
@@ -573,53 +574,75 @@ of module types and instance types.
 
 ### Binary Format Considerations
 
-This proposal defines two new [sections] in the binary format: Module,
-ModuleCode and Instance. Their proposed ordering of sections is:
-1. Type Section
-2. Import Section
-3. Module Section
-4. Instance Section
-5. Function Section
-6. ...
-7. ModuleCode Section
-8. Code Section
-9. Data Section
+This proposal defines four new [sections] in the binary format:
+* **Module Section**: declares a list of module types of modules defined in
+  the ModuleCode Section. Like the Function Section, the Module Section is
+  present near the beginning of a module to allow the creation of an immutable
+  compilation environment for the code that follows.
+* **ModuleCode Section**: contains a list of module definitions, encoded using
+  the same [`module` binary format production] that decodes top-level modules
+  (making `module` a recursive production). Like the Code Section, present at
+  the end of a module, to allow parallel streaming compilation.
+* **Instance Section**: contains a list of `instance` definitions, currently
+  all defined via `instantiate`.
+* **Alias Section**: contains a list of `alias` definitions, both to enclosing
+  modules' module and type definitions, and to preceding instance definitions'
+  exports.
 
-The distinction between the Module and ModuleCode Sections is the same as the
-distinction between the Function and Code Sections: the Module Section declares
-the module types of each nested module while the ModuleCode Section provides the
-definition of each module. Module definitions in the ModuleCode Section are
-decoded with the same [`module` binary format production] that decodes top-level
-modules, making `module` a recursive production. As with functions, splitting
-module types from definitions allows all modules to be decoded, validated and
-optimized in parallel.
+The tricky thing about aliases are that they need to both *refer to* and be
+*referred to by* instance definitions. Moreover, once the [Type Imports]
+proposal is incorporated, instances will contain type exports which type and
+module definitions will need to reference. Keeping all the sections monolithic
+would therefore necessarily create cycles between them, which wasm has thus far
+avoided by design. To prevent illegal cycles, validation would need to implement
+a cycle-checking algorithm.
 
-This section ordering is implied by:
-* Module definitions depend on the Type Section and, later, with [Type Imports],
-  the Import Section.
-* Instance definitions (in the Instance Section) depend on module types (in the
-  Module Section).
-* The exports of instance definitions in the Instance Section can be used in
-  all succeeding sections (even, once instances can [export types], the Function
-  Section).
-* Since a module is instantiated and executed (via its `start` function) after
-  all its nested modules, having Code after ModuleCode allows Code compilation
-  to potentially better overlap ModuleCode execution in streaming scenarios.
+To avoid this complexity, this proposal instead loosens the section ordering
+rules such that the 5 initial sections (Type, Import, Module, Instance, Alias)
+can appear in any order, any number of times each. When a section is present
+multiple times, its definitions are concatenated. When validating a definition
+in one of these sections, the validation [index spaces] are defined to only
+contain the definitions up to that point. Thus, a validation algorithm can
+represent each index space with a vector that is appended to as each section
+is validated with vector bounds checking ensuring acyclicy.
 
-There are several kinds of `alias` definitions introduced above; they go in
-different sections:
-* Aliases of parent modules' types go in the Type Section as a new kind of
-  type definition.
-* Aliases of parent modules' modules go in the Module Section as a new kind of
-  module definition.
-* Aliases of imported or nested instances' exports go in the Instance Section
-  as a new kind of definition (of the aliased export's type).
+To ease implementation and preserve the property that imports always occupy
+the first indices of an index space, one constraint is placed on the initial
+section ordering: all Import Sections must precede all Module and Instance
+Sections.
 
-With aliases interleaved in the Instance Section, implementing the validation
-rules for `instantiate` amounts to adding each instance or alias definition
-one-at-a-time to the appropriate index space (which will initially include all
-Type, Import and Module Section definitions and nothing else), such that index
-space bounds checking implies the required acyclicy.
+The ModuleCode Section is placed right before the Code Section. This ensures
+that ModuleCode can be stream-compiled just like the Code Section given the
+immutable compilation environment created by the preceding sections. The
+ModuleCode Section precedes the Code Section so that the bytestream order
+mirrors instantiation order which may allow better parallelization under some
+execution strategies.
+
+As an example, the text module:
+```wasm
+(module
+  (import "a" (instance $a (export "f" (func $f))))
+  (module $M
+    (import "f" (func))
+    (export "g" (func $g)))
+  (instance $m1 (instantiate $M (func $a.$f)))
+  (instance $m2 (instantiate $M (func $m1.$g)))
+  (func $x (call $m2.$g))
+)
+```
+could be encoded with the binary section sequence:
+1. Type Section, defining an instance type (for `$a`), module type (for `$M`)
+   and function type (for `$x`)
+2. Import Section, defining the import `$a`, referencing (1)
+3. Module Section, declaring `$M` in the module index space, referencing (1)
+4. Alias Section, injecting `$a.$f` into the function index space, referencing (2)
+5. Instance Section, defining the instance `$m1`, referencing (3) and (4)
+6. Alias Section, injecting `$m1.$g` into the function index space, referencing (5)
+7. Instance Section, defining the instance `$m2`, referencing (3) and (6)
+8. Alias Section, injecting `$m2.$g` into the function index space, referencing (7)
+9. Function Section, declaring `$x` in the function index space, referencing (1)
+10. ModuleCode Section, defining `$M`
+11. Code Section, defining `$x`
 
 
 ### Summary
