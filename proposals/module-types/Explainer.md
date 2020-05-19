@@ -670,18 +670,17 @@ To summarize the proposed changes (all changes in both text and binary format):
   question.)
 * New `module` and `instance` type constructors are added that may be used to
   define types in the [type section].
-* A new `alias` case is added to type definitions allowing the import of parent
-  modules' type definitions.
 * New `module` and `instance` cases are added to [`importdesc`], referencing
   module and instance type definitions in the type section.
-* A new Module Section is added which contains a sequence of either module type
-  declarations for module definitions in the ModuleCode Section or `alias`
-  definitions.
+* A new Module Section is added which contains a sequence of module type
+  declarations for module definitions in the ModuleCode Section.
 * A new ModuleCode Section is added which contains module definitions, encoded
   using the same binary format as top-level modules.
-* A new Instance Section is added which contains a sequence of either instance
-  definitions or `alias` definitions.
-* New `module` and `instance` cases are added to [`exportdesc`].
+* A new Instance Section is added which contains a sequence of instance
+  definitions.
+* A new Alias Section is added which contains a sequence of alias definitions.
+* New `module` and `instance` cases are added to [`exportdesc`] and the export
+  string becomes optional (allowing zero-level exports).
 
 
 ## Use Cases Revisited
