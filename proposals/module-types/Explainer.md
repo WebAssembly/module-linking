@@ -313,24 +313,39 @@ Module and Instance types can also be used to describe the types of imports:
 
 Just as a function, memory, table or global can be imported by specifying a
 function, memory, table or global type, instances can be imported by specifying
-an instance type.
+an instance type:
+```wasm
+(module
+  (import "i" (instance $i
+    (export "f1" (func $f1))
+    (export "f2" (func $f2 (param i32)))
+  ))
+)
+```
+This module imports an instance that exports two functions, `f1` and `f2`.
 
-A single instance import is practically equivalent to individually importing
-all of its exports. Indeed, instances have no observable identity: instances are
-just [immutable tuples][`moduleinst`] containing the *addresses* of mutable
-things with identity like memories and tables.
-
-For example, a wasm module you can write today as:
+A single-level instance import with N exports is isomorphic to N two-level
+imports because instances have no observable identity; instances are just
+[immutable tuples][`moduleinst`]. Reflecting this fact, module subtyping allows
+single-level instance imports and two-level field imports to be used
+interchangeably. For example, the following two module types are subtypes of
+each other.
 ```wasm
 (module
   (import "i" "f1" (func $f1))
   (import "i" "f2" (func $f2 (param i32)))
-  (func (export "run")
-    call $f1
-  )
 )
 ```
-could instead be rewritten to use an instance import:
+```wasm
+(module
+  (import "i" (instance $i
+    (export "f1" (func $f1))
+    (export "f2" (func $f2 (param i32)))
+  ))
+)
+```
+From inside a module definition, the exports of an imported instance can be
+accessed with an identifier path:
 ```wasm
 (module
   (import "i" (instance $i
@@ -342,9 +357,9 @@ could instead be rewritten to use an instance import:
   )
 )
 ```
-Here we take advantage of the syntactic sugar `$i.$f1` which implicitly
-creates a new kind of definition added by this proposal called an `alias`.
-A desugared version of the same module can be written:
+Identifier paths like `$i.$f1` are actually syntactic sugar for creating
+a new kind of definition added by this proposal called an `alias`. A desugared
+version of the same module can be written:
 ```wasm
 (module
   (import "i" (instance $i
