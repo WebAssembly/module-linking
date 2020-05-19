@@ -527,12 +527,12 @@ an enclosing module's type or module definitions:
 This gets desugared into an explicit `alias` definition adding an entry to
 the child's type index space:
 ```wasm
-(module $Parent
+(module
   (type $WasiFile (instance $wasi-file
     (export "read" (func (param i32 i32 i32) (result i32)))
   ))
   (module $child
-    (alias $WasiFile (type $Parent $WasiFile))
+    (alias $WasiFile (parent (type $WasiFile)))
     (import "wasi_file" (instance (type $WasiFile)))
   )
 )
@@ -681,7 +681,7 @@ Reconsidering the requirements stated [above](#additional-requirements):
   is able to avoid GC in the status quo (without nested instances), a host can
   continue to avoid the need for GC. Technically, a host could obtain a
   reference to a nested instance, drop all references to its parent instances,
-  and thus be able to collect the unreachable parent instances are garbage.
+  and thus be able to collect the unreachable parent instances as garbage.
   However, this would only be an optional optimization and should never be
   required for correct execution because there is a bounded amount of garbage
   created. Moreover, hosts could continue to manage the lifetime of instances by
