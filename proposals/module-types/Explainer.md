@@ -571,6 +571,23 @@ be exported. For example:
 Therefore, module and instance types can appear in both the imports and exports
 of module types and instance types.
 
+Symmetric to the "zero-level export" mentioned [above](#module-and-instance-types)
+which is allowed in module *types*, zero-level exports are also allowed in
+module *definitions* as a convenient way to define a module's exports to be
+that of a given instance.
+
+For example, this (outer) module:
+```wasm
+(module
+  (module $M (func (export "foo") ..))
+  (instance $i (instantiate $M))
+  (export $i)
+)
+```
+exports the function `foo`. If `$i` were instead exported with a normal
+single-level export, the outer module would instead export an *instance* (which
+itself exported `foo`).
+
 
 ### Binary Format Considerations
 
