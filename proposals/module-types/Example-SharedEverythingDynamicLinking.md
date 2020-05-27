@@ -486,6 +486,18 @@ offset and their indices written into the exported `i32`s.
 static knowledge of its shared libraries.)
 
 
+## Linear-memory stack pointer
+
+To implement address-taken local variables, varargs, and other corner cases,
+wasm compilers maintain a stack in linear memory that is maintained in
+lock-step with the native WebAssembly stack. The pointer to the top of this
+linear-memory stack is usually maintained in a single global `i32` variable that
+must be shared by all linked instances. Following the above linking scheme, a
+natural way to achieve this is for `libc` to export the `i32` global as part of
+its interface and for all shared libraries and the main module to import this
+global.
+
+
 ## Runtime Dynamic Linking
 
 The general case of runtime dynamic linking in the style of `dlopen`, where an
