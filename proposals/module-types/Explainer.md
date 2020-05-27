@@ -250,7 +250,7 @@ Although module types list imports and exports in a particular order, module
 *subtyping* allows a supplied module definition's to have a different order as
 long as all the fields are present. Moreover, module subtyping is covariant in
 exports and contravariant in imports (including allowing a subtype to have more
-expors and fewer imports than the supertype). These permissive subtyping rules
+exports and fewer imports than its supertype). These permissive subtyping rules
 provide modules additional flexibility to evolve without breaking existing
 clients. Since module types are checked at instantiation-time, this extra
 flexibility shouldn't affect runtime performance.
@@ -324,26 +324,23 @@ an instance type:
 ```
 This module imports an instance that exports two functions, `f1` and `f2`.
 
-A single-level instance import with N exports is isomorphic to N two-level
-imports because instances have no observable identity; instances are just
-[immutable tuples][`moduleinst`]. Reflecting this fact, module subtyping allows
-single-level instance imports and two-level field imports to be used
-interchangeably. For example, the following two module types are subtypes of
-each other.
+Since instances have no observable identity (a [`moduleinst`] is just an
+immutable record containing the addresses of its fields in the store) there
+should be no semantic difference between the previous module and this next one:
 ```wasm
 (module
   (import "i" "f1" (func $f1))
   (import "i" "f2" (func $f2 (param i32)))
 )
 ```
-```wasm
-(module
-  (import "i" (instance $i
-    (export "f1" (func $f1))
-    (export "f2" (func $f2 (param i32)))
-  ))
-)
-```
+
+To achieve this in a (binary and text) backwards-compatible way, multi-level
+imports are recast as syntactic sugar for single-level imports of instances.
+(In pathological cases of interleaving between two module strings, the
+text/binary rules would specify that the aggregate instance import would
+appear at the position of the first of its fields.) Thus, the above two modules
+both parse and decode to the same abstract syntax.
+
 From inside a module definition, the exports of an imported instance can be
 accessed with an identifier path:
 ```wasm
