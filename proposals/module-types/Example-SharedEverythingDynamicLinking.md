@@ -311,9 +311,9 @@ metadata embedded in a wasm module [custom section], we already have a string in
 the module which serves the purpose of communicating dependency information to
 the toolchain: the import string. Thus, a lightweight convention could be for
 the public header of a shared library to simply include the semantic version in
-the declarations. For example, following this convention, `stdlib.h` and
-`libzip.h` would look like:
+the declarations. This is similar to the [soname] convention in ELF.
 
+For example, following this convention, `stdlib.h` and `libzip.h` would look like:
 ```c
 /* stdlib.h */
 #include <stddef.h>
@@ -475,10 +475,10 @@ function, a shared library will need to export both the `func` definition and an
 `i32` `global` containing that `func`'s index in the global `funcref` table.
 
 Because a shared library can't know the absolute offset in the global `funcref`
-table for all of its exported functions, the table slots must be dynamically
-allocated. This can be achieved by the shared library calling into a `ftalloc`
-export of `libc` (analogous to `malloc`, but for allocating from the global
-`funcref` table) from the shared library's `start` function. Elements can
+table for all of its exported functions, the table slots' offsets must be
+dynamic. One way this could be achieved is by the shared library calling into a
+`ftalloc` export of `libc` (analogous to `malloc`, but for allocating from the
+global `funcref` table) from the shared library's `start` function. Elements could
 then be written into the table (using [bulk memory operations]) at the allocated
 offset and their indices written into the exported `i32`s.
 
@@ -518,6 +518,7 @@ only one kind of dynamic linking.
 [ESM-integration]: https://github.com/WebAssembly/esm-integration
 [Custom Section]: https://webassembly.github.io/spec/core/binary/modules.html#binary-customsec
 [Spanning]: https://en.wikipedia.org/wiki/Spanning_tree
+[soname]: https://en.wikipedia.org/wiki/Soname
 [Bulk Memory Operations]: https://github.com/WebAssembly/bulk-memory-operations/
 [WASI]: https://github.com/webassembly/wasi
 [JS API]: https://webassembly.github.io/spec/js-api/index.html
