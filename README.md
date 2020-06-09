@@ -1,5 +1,14 @@
 [![Build Status](https://travis-ci.org/WebAssembly/spec.svg?branch=master)](https://travis-ci.org/WebAssembly/spec)
 
+# Module Linking Proposal for WebAssembly
+
+This repository is a clone of [github.com/WebAssembly/spec/](https://github.com/WebAssembly/spec/).
+It is meant for discussion, prototype specification and implementation of a
+proposal to add support for module linking to WebAssembly.
+
+See the [explainer](proposals/module-linking/Explainer.md) for a summary of the
+proposal.
+
 # spec
 
 This repository holds the sources for the WebAssembly draft specification
