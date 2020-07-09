@@ -24,7 +24,9 @@ Four new sections are added
 The Type, Import, Module, Instance, and Alias sections can appear in any order
 at the beginning of a module. Each item defined in these sections can only refer
 to previously defined items. For example instance 4 cannot reference instance 5,
-and similarly no instance can refer to the module's own functions.
+and similarly no instance can refer to the module's own functions. Similarly
+instance 4 can only access module 3 if module 3 precedes instance 4 in binary
+format order.
 
 ## Type Section updates
 
@@ -53,6 +55,8 @@ referencing:
 
 * [`resulttype`](https://webassembly.github.io/spec/core/binary/types.html#binary-resulttype)
 * [`import`](https://webassembly.github.io/spec/core/binary/modules.html#binary-import)
+* [`importdesc`](https://webassembly.github.io/spec/core/binary/modules.html#binary-importdesc) -
+  although note that this is updated below as well.
 
 **Validation**
 
@@ -78,10 +82,6 @@ importdesc ::=
     0x05 x:typeidx                              ->    module x
     0x06 x:typeidx                              ->    instance x
 ```
-
-The `import` production is modified to allow optionally dropping the `name`
-field. This is done by encoding an invalid utf-8 string so this is an invalid
-MVP import.
 
 **Validation**
 
@@ -110,18 +110,21 @@ A new section defining local instances
 ```
 instancesec ::=  i*:section_101(vec(instancedef))     ->    i*
 
-instancedef ::= m:moduleidx e*:vec(exportdesc)        ->    {instantiate m, imports e}
+instancedef ::= 0x00 m:moduleidx e*:vec(exportdesc)   ->    {instantiate m, imports e}
 ```
 
 This defines instances in the module, appending to the instance index space.
 Each instance definition declares the module it's instantiating as well as the
-items used to instantiate that instance.
+items used to instantiate that instance. Note that the leading 0x00 is intended
+to allow different forms of instantiation in the future if added. This is also a
+placeholder value for now since if an `instantiate` instruction will be added in
+the future we'll likely want this binary value to match that.
 
 **Validation**
 
 * The type index `m` must point to a module type.
 * The length of `e*` must be the same as the number of imports the module type
-  has
+  has.
 * The type of each element of `e*` must be a subtype of the type that it's being
   matched with. Matching happens pairwise with the list of imports on the module
   type for `m`.
@@ -142,16 +145,20 @@ alias ::=
     0x00 i:instanceidx 0x03 e:exportidx      ->       (alias (instance $i) (global $e))
     0x00 i:instanceidx 0x05 e:exportidx      ->       (alias (instance $i) (module $e))
     0x00 i:instanceidx 0x06 e:exportidx      ->       (alias (instance $i) (instance $e))
-    0x01 0x04 m:moduleidx                    ->       (alias parent (module $m))
+    0x01 0x05 m:moduleidx                    ->       (alias parent (module $m))
     0x01 0x07 t:typeidx                      ->       (alias parent (type $t))
 ```
 
 **Validation**
 
 * Aliased instance indexes are all in bounds
-* Aliased instance export indices are in bounds relative to the instance
+* Aliased instance export indices are in bounds relative to the instance's
+  *locally-declared* (via module or instance type) list of exports
 * Export indices match the actual type of the export
-* Aliases append to the respective index space
+* Aliases append to the respective index space.
+* Parent aliases can only happen in submodules (not the top-level module) and
+  the index specifies is the entry, in the parent's raw index space, for that
+  item.
 
 ## Function section
 
@@ -194,6 +201,9 @@ the top-level
 * Modules themselves validate recursively.
 * Must have the same number of modules as the count of all local module
   sections.
+* Each submodule is validated with a subset of the parent's context, for example
+  the set of types and instances the current module has defined are available
+  for aliasing in the submodule.
 
 ## Subtyping
 
