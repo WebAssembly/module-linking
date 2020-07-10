@@ -123,13 +123,16 @@ the future we'll likely want this binary value to match that.
 **Validation**
 
 * The type index `m` must point to a module type.
-* The length of `e*` must be the same as the number of imports the module type
-  has.
-* The type of each element of `e*` must be a subtype of the type that it's being
-  matched with. Matching happens pairwise with the list of imports on the module
-  type for `m`.
 * Indices of items referred to by `exportdesc` are all in-bounds. Can only refer
   to imports/previous aliases, since only those sections can precede.
+* The precise rules of how `e*` is validated against the module type's declare
+  list of imports is being hashed out in
+  [#7](https://github.com/WebAssembly/module-linking/issues/7). For now
+  conservative order-dependent rules are used where the length of `e*` must be
+  the same as the number of imports the module type has. Additionally the type
+  of each element of `e*` must be a subtype of the type that it's being matched
+  with. Matching happens pairwise with the list of imports on the module type
+  for `m`.
 
 ## Alias section (102)
 
@@ -159,6 +162,12 @@ alias ::=
 * Parent aliases can only happen in submodules (not the top-level module) and
   the index specifies is the entry, in the parent's raw index space, for that
   item.
+* Parent aliases can only refer to preceeding module/type definitions, relative
+  to the binary location where the inline module's type was declared. Note that
+  when the module code section is defined all of the parent's modules/types are
+  available, but inline modules still may not have access to all of these if the
+  items were declared after the module's type in the corresponding module
+  section.
 
 ## Function section
 
