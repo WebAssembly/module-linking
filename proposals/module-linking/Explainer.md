@@ -192,8 +192,8 @@ const importObj = {
 };
 WebAssembly.instantiate(module, importObj);
 ```
-For [ESM-integration], single-level imports map naturally to the ESM
-[default export], closing a current slight expressivity gap.
+For [ESM-integration], single-level imports could potentially map to the ESM
+[default export].
 
 
 ### Module and Instance Types
