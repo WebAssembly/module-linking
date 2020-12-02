@@ -44,9 +44,9 @@ type ::=
 functype ::= rt_1:resulttype rt_2:resulttype    ->        rt_1 -> rt-2
 
 moduletype ::=
-  i*:vec(import) e*:vec(exporttype)             ->        {imports i, exports e}
+  i*:vec(import) e*:vec(exporttype)             ->        {imports i*, exports e*}
 
-instancetype ::= e*:vec(exporttype)             ->        {exports e}
+instancetype ::= e*:vec(exporttype)             ->        {exports e*}
 
 exporttype ::= nm:name d:importdesc             ->        {name nm, desc d}
 ```
@@ -70,12 +70,12 @@ Updates to
 [`importdesc`](https://webassembly.github.io/spec/core/binary/modules.html#binary-importdesc)
 
 ```
-# note that `0x01 0xc0` in MVP-wasm specifies a 1-byte module field of the
-# string 0xc0, but the 0xc0 byte is not valid utf-8, so this was not a valid
-# MVP import
+# note that in MVP wasm this encoding specifies a zero-length field name, but
+# the following `0xff` byte is not a valid `importdesc` prefix, so this encoding
+# is invalid in MVP wasm
 import ::=
     ...
-    mod:name  0x01 0xc0 d:importdesc            ->    {module mod, desc d}
+    mod:name 0x00 0xff d:importdesc             ->    {module mod, desc d}
 
 importdesc ::=
     ...
@@ -110,7 +110,7 @@ A new section defining local instances
 ```
 instancesec ::=  i*:section_101(vec(instancedef))     ->    i*
 
-instancedef ::= 0x00 m:moduleidx e*:vec(exportdesc)   ->    {instantiate m, imports e}
+instancedef ::= 0x00 m:moduleidx e*:vec(exportdesc)   ->    {instantiate m, imports e*}
 ```
 
 This defines instances in the module, appending to the instance index space.
