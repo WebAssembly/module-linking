@@ -284,7 +284,7 @@ example, an instance type can be defined:
 
 In many examples shown below, type definitions are needed for *both* a module
 type and the instance type produced when that module type is instantiated. In
-such cases, to avoid duplicating all the exports, a new "zero-level export" 
+such cases, to avoid duplicating all the exports, a new "zero-level export"
 `(export $InstanceType)` form is added which injects all the exports of
 `$InstanceType` into the containing module type. For example, here is the type
 of a module which implements the above-defined `$WasiFile` interface via Win32
@@ -363,9 +363,9 @@ version of the same module can be written:
     (export "f1" (func $f1))
     (export "f2" (func $f2 (param i32)))
   ))
-  (alias $i.f1 (func $i $f1))
+  (alias $i.$f1 (instance $i) (func $f1))
   (func (export "run")
-    call $i.f1
+    call $i.$f1
   )
 )
 ```
@@ -377,17 +377,17 @@ how multiple uses of inline function types [desugar][typeuse-abbrev] to the same
 function type definition.
 
 Aliases are not restricted to functions: all exportable definitions can be
-aliased. One situation where an explicit `alias` definition will be required is
-for a default memory or table: because there is no explicit `$i.$j` path used by
-instructions to refer to defaults, they must be explicitly aliased:
+aliased. One situation where an explicit `alias` definition may be required is
+for a default memory or table since if there is no explicit `$i.$j` path used
+by instructions to refer to defaults, they must be explicitly aliased:
 ```wasm
 (module
   (import "libc" (instance $libc
     (export "memory" (memory $mem 1))
     (export "table" (table $tbl 0 funcref))
   ))
-  (alias (memory $libc $mem)) ;; memory index 0 = default memory
-  (alias (table $libc $tbl)) ;; table index 0 = default table
+  (alias (instance $libc) (memory $mem)) ;; memory index 0 = default memory
+  (alias (instance $libc) (table $tbl)) ;; table index 0 = default table
   (func
     ...
     i32.load  ;; accesses $libc.$mem
@@ -544,11 +544,17 @@ the child's type index space:
     (export "read" (func (param i32 i32 i32) (result i32)))
   ))
   (module $child
-    (alias $WasiFile (parent (type $WasiFile)))
+    (alias $WasiFile parent (type $WasiFile))
     (import "wasi_file" (instance (type $WasiFile)))
   )
 )
 ```
+Note that `parent` aliases can only refer to previously-defined items relative
+to the module's own declaration in the module index space. This means that it
+can refer to previously defined imports, modules, instances, or aliases, but it
+cannot refer to imports (for example) that occur after the module's
+declaration. A module is declared with its type and defined later in the binary
+format.
 
 In general, language-independent tools can easily merge multiple `.wasm` files
 in a dependency graph into one `.wasm` file by performing simple transformations
@@ -673,6 +679,9 @@ could be encoded with the binary section sequence:
 10. ModuleCode Section, defining `$M`
 11. Code Section, defining `$x`
 
+This repository also contains an [initial proposal for the binary format
+updates](./Binary.md).
+
 
 ### Summary
 
@@ -764,7 +773,7 @@ More generally, when ESM-integration loads a module with a
 
 With this extension, a single JS app will be able to load multiple wasm
 programs using ESM `import` statements and have these programs safely and
-transparently share library code as described in 
+transparently share library code as described in
 [shared-everything dynamic linking example](Example-SharedEverythingDynamicLinking.md).
 
 

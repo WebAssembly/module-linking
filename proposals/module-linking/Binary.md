@@ -62,7 +62,8 @@ referencing:
 
 * each `importdesc` is valid according to import section
 * Types can only reference preceding type definitions. This forces everything to
-  be a DAG and forbids cyclic types.
+  be a DAG and forbids cyclic types. TODO: with type imports we may need cyclic
+  types, so this validation will likely change in some form.
 
 ## Import Section updates
 
@@ -89,12 +90,12 @@ importdesc ::=
 * the `module x` production ensures the type `x` is indeed a module type
 * the `instance x` production ensures the type `x` is indeed an instance type
 
-## Module section (100)
+## Module section (14)
 
 A new module section is added
 
 ```
-modulesec ::=  t*:section_100(vec(typeidx))           ->        t*
+modulesec ::=  t*:section_14(vec(typeidx))           ->        t*
 ```
 
 **Validation**
@@ -103,12 +104,12 @@ modulesec ::=  t*:section_100(vec(typeidx))           ->        t*
 * This defines the locally defined set of modules, adding to the module index
   space.
 
-## Instance section (101)
+## Instance section (15)
 
 A new section defining local instances
 
 ```
-instancesec ::=  i*:section_101(vec(instancedef))     ->    i*
+instancesec ::=  i*:section_15(vec(instancedef))     ->    i*
 
 instancedef ::= 0x00 m:moduleidx e*:vec(exportdesc)   ->    {instantiate m, imports e*}
 ```
@@ -125,21 +126,25 @@ the future we'll likely want this binary value to match that.
 * The type index `m` must point to a module type.
 * Indices of items referred to by `exportdesc` are all in-bounds. Can only refer
   to imports/previous aliases, since only those sections can precede.
-* The precise rules of how `e*` is validated against the module type's declare
-  list of imports is being hashed out in
-  [#7](https://github.com/WebAssembly/module-linking/issues/7). For now
-  conservative order-dependent rules are used where the length of `e*` must be
-  the same as the number of imports the module type has. Additionally the type
-  of each element of `e*` must be a subtype of the type that it's being matched
-  with. Matching happens pairwise with the list of imports on the module type
-  for `m`.
+* The `e*` list is validated against the module type's declared list
+  of [imports pairwise and in-order](Explainer.md#module-imports-and-nested-instances).
+  The type of each item must be a supertype of the expected type listed in the
+  module's type.
 
-## Alias section (102)
+**Execution notes**
+
+* The actual module being instantiated does not need to list imports in the
+  exact same order as its type declaration. The `e*` has names based on the
+  local module type's declaration.
+* Be sure to read up on [subtyping](./Subtyping.md) to ensure that instances
+  with a single name can be used to match imports with a two-level namespace.
+
+## Alias section (16)
 
 A new module section is added
 
 ```
-aliassec ::=  a*:section_102(vec(alias))     ->        a*
+aliassec ::=  a*:section_16(vec(alias))     ->        a*
 
 alias ::=
     0x00 i:instanceidx 0x00 e:exportidx      ->       (alias (instance $i) (func $e))
@@ -154,9 +159,10 @@ alias ::=
 
 **Validation**
 
-* Aliased instance indexes are all in bounds
+* Aliased instance indexes are all in bounds. Remember "in bounds" here means it
+  can't refer to instances defined after the `alias` item.
 * Aliased instance export indices are in bounds relative to the instance's
-  *locally-declared* (via module or instance type) list of exports
+  *locally-declared* (via module or instance type) list of exports.
 * Export indices match the actual type of the export
 * Aliases append to the respective index space.
 * Parent aliases can only happen in submodules (not the top-level module) and
@@ -168,6 +174,12 @@ alias ::=
   available, but inline modules still may not have access to all of these if the
   items were declared after the module's type in the corresponding module
   section.
+
+**Execution notes**
+
+* Note for child aliases that while the export is referred to by index it's
+  actually loaded from the specified instance by name. The name loaded
+  corresponds to the `i`th export's name in the locally defined type.
 
 ## Function section
 
@@ -191,10 +203,10 @@ exportdesc ::=
 
 * Module/instance indexes must be in-bounds.
 
-## Module Code Section (103)
+## Module Code Section (17)
 
 ```
-modulecodesec ::= m*:section_103(vec(modulecode))       ->    m*
+modulecodesec ::= m*:section_17(vec(modulecode))       ->    m*
 
 modulecode ::= size:u32 mod:module                      ->    mod, size = ||mod||
 ```
@@ -208,31 +220,9 @@ the top-level
 * Module definitions must match their module type exactly, no subtyping (or
   maybe subtyping, see WebAssembly/module-linking#9).
 * Modules themselves validate recursively.
-* Must have the same number of modules as the count of all local module
-  sections.
-* Each submodule is validated with a subset of the parent's context, for example
-  the set of types and instances the current module has defined are available
-  for aliasing in the submodule.
-
-## Subtyping
-
-Subtyping will extend what's currently ["import
-matching"](https://webassembly.github.io/spec/core/exec/modules.html#import-matching)
-
-**Instances**
-
-Instance `{exports e1}` is a subtype of `{exports e2}` if and only if:
-
-* Each name in `e1` is present in `e2`
-* For each corresponding name `n` in the sets
-  * `e1[n]` is a subtype of `e2[n]`
-
-**Instances**
-
-Module `{imports i1, exports e1}` is a subtype of `{imports i2, exports e2}` if and only if:
-
-* Each name in `e1` is present in `e2`
-* For each corresponding name `n` in the sets
-  * `e1[n]` is a subtype of `e2[n]`
-* ... And some condition on imports. For now this is a bit up for debate on
-  WebAssembly/module-linking#7
+* The module code section must have the same number of modules as the count of
+  all local module sections.
+* Each submodule is validated with the parent's context at the time of
+  declaration. For example the set of types and modules the current module
+  has defined are available for aliasing in the submodule, but only those
+  defined before the corresponding module's type declaration.
