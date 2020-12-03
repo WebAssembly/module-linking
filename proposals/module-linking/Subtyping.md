@@ -101,7 +101,9 @@ cannot be recast as:
 
 because exports in instances must have unique names. As a result **this proposal
 proposes a breaking change** to forbid duplicate import strings between two
-imports. This would make module `$A` an invalid module.
+imports (more discussion about this breaking change is available on
+[#7](https://github.com/WebAssembly/module-linking/issues/7) and [below as
+well](#breaking-change)). This would make module `$A` an invalid module.
 
 Note that this breaking change would also mean that these modules are all
 invalid:
@@ -180,3 +182,22 @@ which is to name all the provided items according to the declared module type
 that's being instantiated. This also enables embedders to work with instances
 supplied to satisfy a list of function imports. For example embedders would take
 a singular "wasi instance" to satisfy all wasi function imports from a module.
+
+## Breaking change?!
+
+This entire interpretation of imports relies on the aforementioned breaking
+change, which is to disallow two import directives with the same names. The
+rationale for this breaking change is:
+
+* It's expected that in practice different import directives with the same name
+  is exceedingly rare. So far the only confirmed cases are in test harnesses
+  where you might import `console.log` with two signatures for example. It's
+  hoped we can [collect
+  data](https://bugzilla.mozilla.org/show_bug.cgi?id=1647791) to back up this
+  claim.
+
+* Another hope is that the spec can change to disallow duplicate imports, but
+  enginess with backwards-compatibility guarantees could deviate from the spec
+  in this regard and allow duplicate import strings in older modules. This way
+  engines that can could follow the spec exactly, and if necessary engines
+  wouldn't have to break existing content.
