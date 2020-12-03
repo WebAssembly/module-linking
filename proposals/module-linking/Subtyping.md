@@ -6,13 +6,23 @@ The main gotcha with subtyping primarily comes around with how two module
 types' import lists are related. This will go into more detail below on that.
 First though:
 
-**Instances**
+## Instance Subtyping
 
-Instance type `i1` is a subtype of `i2` if all exports in `i2` are present in
-`i1` and are also subtypes.
+Instance types are a map of exports from the name of exports to the type of the
+export. We can generally say that for one map `e1` to be a subtype of another
+map `e2` then everything in `e2` must be present in `e1`:
 
 ```
 ∀ name ∈ e2 : e1[name] ≤ e2[name]
+---------------------------------
+             e1 ≤ e2
+```
+
+And since that's all instance types are we can just use that to define subtyping
+between instances:
+
+```
+            e1 ≤ e2
 -------------------------------
   {exports e1} ≤ {exports e2}
 ```
@@ -34,26 +44,12 @@ With some examples:
   ≤ (instance (export "" (instance)))
 ```
 
-**Modules**
-
-Module `{imports i1, exports e1}` is a subtype of `{imports i2, exports e2}` if
-both the imports and exports are subtypes.
-
-```
-{imports i2} ≤ {imports i1}              {exports e1} ≤ {exports e2}
---------------------------------------------------------------------
-          {imports i1, exports e1} ≤ {imports i2, exports e2}
-```
-
-Exports are considered subtypes the same way as instances, and discussion about
-imports has happened on
-[WebAssembly/module-linking#7](https://github.com/WebAssembly/module-linking/issues/7),
-and this will attempt to summarize the current state.
-
 ## Import Elaboration
 
-First it's important to note [that all two-level imports are now equivalent to
-instance imports](./Explainer.md#instance-imports-and-aliases), meaning that all
+modules are trickier than instances, so first this will describe some tweaks to
+imports in the current proposal.  It's important to note [that all two-level
+imports are now equivalent to instance
+imports](./Explainer.md#instance-imports-and-aliases), meaning that all
 imports are a name and a type. The proposed method of elaboration is to group
 all two-level imports with the same module name next to one another, and then
 flatten each group of two-level imports into one one-level import of an
@@ -127,21 +123,22 @@ invalid:
 )
 ```
 
-## Import Subtyping
+## Module Subtyping
 
-Next we're faced with a question of whether a module's imports `i1` are a
-subtype of another module's imports `i2`. After recasting everything as instance
-imports, however, this is relatively simple. This is effectively the inverse of
-export subtyping where we're reversing the direction of the subtype test:
+With the import elaboration above it means that imports are actually the same
+thing as exports, a map from name to a type. Module `{imports i1, exports e1}`
+is then a subtype of `{imports i2, exports e2}` if this property holds:
 
 ```
-∀ name ∈ i1 : i2[name] ≤ i1[name]
------------------------------------------------
-          {imports i1} ≤ {imports i2}
+          i2 ≤ i1              e1 ≤ e2
+---------------------------------------------------
+{imports i1, exports e1} ≤ {imports i2, exports e2}
 ```
 
-Or in other words the requested list of imports must be a subset of the provided
-list of imports, and each requested type must be a subtype of the provided type.
+Handling of exports is the same as instances, which basically means that it's ok
+if `m1` exports more than what `m2` expects. The subtelty with imports is that
+the order of checking is reversed, it's ok to import less than what's
+expected.
 
 Some examples of valid modules are:
 
@@ -161,8 +158,8 @@ Some examples of valid modules are:
 
 ## Instantiation
 
-Instantiation primarily occurs via name-based resolution (e.g. in the JS API and other language embeddings) or
-position-based resolution (e.g. embedded engines).
+Instantiation primarily occurs via name-based resolution (e.g. in the JS API and
+other language embeddings) or position-based resolution (e.g. embedded engines).
 
 It's expected that the original import list of a module is retained to map
 positional-based resolution to name-based resolution. With positional-based
