@@ -40,7 +40,7 @@ Module `{imports i1, exports e1}` is a subtype of `{imports i2, exports e2}` if
 both the imports and exports are subtypes.
 
 ```
-{imports i1} ≤ {imports i2}              {exports e1} ≤ {exports e2}
+{imports i2} ≤ {imports i1}              {exports e1} ≤ {exports e2}
 --------------------------------------------------------------------
           {imports i1, exports e1} ≤ {imports i2, exports e2}
 ```
@@ -135,7 +135,7 @@ imports, however, this is relatively simple. This is effectively the inverse of
 export subtyping where we're reversing the direction of the subtype test:
 
 ```
-∀ name, instancety ∈ i1 : instancety ≤ i2[name]
+∀ name ∈ i1 : i2[name] ≤ i1[name]
 -----------------------------------------------
           {imports i1} ≤ {imports i2}
 ```
