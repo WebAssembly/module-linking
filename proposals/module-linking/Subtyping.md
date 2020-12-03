@@ -3,7 +3,7 @@
 Subtyping will extend what's currently ["import
 matching"](https://webassembly.github.io/spec/core/exec/modules.html#import-matching).
 The main gotcha with subtyping primarily comes around with how two module
-types's import lists are related. This will go into more detail below on that.
+types' import lists are related. This will go into more detail below on that.
 First though:
 
 **Instances**
@@ -12,7 +12,7 @@ Instance type `i1` is a subtype of `i2` if all exports in `i2` are present in
 `i1` and are also subtypes.
 
 ```
-∀ name, ty ∈ e2 : e1[name] ≤ ty
+∀ name ∈ e2 : e1[name] ≤ e2[name]
 -------------------------------
   {exports e1} ≤ {exports e2}
 ```
@@ -24,7 +24,7 @@ With some examples:
 
 ;; If asked for something that doesn't have exports and provided something that
 ;; has exports, that's ok.
-(instsance (export "" (func))) ≤ (instance)
+(instance (export "" (func))) ≤ (instance)
 
 ;; Asked for something that exports an instance with no fields, it's ok to
 :; provide an instance which exports an instance with exports. When that
@@ -161,7 +161,7 @@ Some examples of valid modules are:
 
 ## Instantiation
 
-Instantiation primarily occurs via name-based resolution (e.g. JS) or
+Instantiation primarily occurs via name-based resolution (e.g. in the JS API and other language embeddings) or
 position-based resolution (e.g. embedded engines).
 
 It's expected that the original import list of a module is retained to map

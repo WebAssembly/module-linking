@@ -123,12 +123,12 @@ the future we'll likely want this binary value to match that.
 
 **Validation**
 
-* The type index `m` must point to a module type.
+* The module index `m` must be in bounds.
 * Indices of items referred to by `exportdesc` are all in-bounds. Can only refer
   to imports/previous aliases, since only those sections can precede.
 * The `e*` list is validated against the module type's declared list
   of [imports pairwise and in-order](Explainer.md#module-imports-and-nested-instances).
-  The type of each item must be a supertype of the expected type listed in the
+  The type of each item must be a subtype of the expected type listed in the
   module's type.
 
 **Execution notes**
