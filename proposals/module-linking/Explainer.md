@@ -609,22 +609,19 @@ itself exported `foo`).
 
 ### Binary Format Considerations
 
-This proposal defines four new [sections] in the binary format:
-* **Module Section**: declares a list of module types of modules defined in
-  the ModuleCode Section. Like the Function Section, the Module Section is
-  present near the beginning of a module to allow the creation of an immutable
-  compilation environment for the code that follows.
-* **ModuleCode Section**: contains a list of module definitions, encoded using
+This proposal defines three new [sections] in the binary format:
+* **Module Section**: contains a list of module definitions, encoded using
   the same [`module` binary format production] that decodes top-level modules
-  (making `module` a recursive production). Like the Code Section, present at
-  the end of a module, to allow parallel streaming compilation.
+  (making `module` a recursive production). Due to nested modules only being
+  able to refer to preceding parent definitions, in a streaming-compilation
+  scenario, nested modules may be compiled as soon as their bytes are received.
 * **Instance Section**: contains a list of `instance` definitions, currently
   all defined via `instantiate`.
 * **Alias Section**: contains a list of `alias` definitions, both to enclosing
   modules' module and type definitions, and to preceding instance definitions'
   exports.
 
-The tricky thing about aliases are that they need to both *refer to* and be
+The tricky thing about aliases is that they need to both *refer to* and be
 *referred to by* instance definitions. Moreover, once the [Type Imports]
 proposal is incorporated, instances will contain type exports which type and
 module definitions will need to reference. Keeping all the sections monolithic
@@ -646,13 +643,6 @@ the first indices of an index space, one constraint is placed on the initial
 section ordering: all Import Sections must precede all Module and Instance
 Sections.
 
-The ModuleCode Section is placed right before the Code Section. This ensures
-that ModuleCode can be stream-compiled just like the Code Section given the
-immutable compilation environment created by the preceding sections. The
-ModuleCode Section precedes the Code Section so that the bytestream order
-mirrors instantiation order which may allow better parallelization under some
-execution strategies.
-
 As an example, the text module:
 ```wasm
 (module
@@ -666,18 +656,17 @@ As an example, the text module:
 )
 ```
 could be encoded with the binary section sequence:
-1. Type Section, defining an instance type (for `$a`), module type (for `$M`)
-   and function type (for `$x`)
+1. Type Section, defining an instance type (for `$a`) and function type (for `$x`)
 2. Import Section, defining the import `$a`, referencing (1)
-3. Module Section, declaring `$M` in the module index space, referencing (1)
+3. Module Section, defining the module `$M`, which is allowed to alias the
+   parent module's `[]->[]` function type (referencing (1))
 4. Alias Section, injecting `$a.$f` into the function index space, referencing (2)
 5. Instance Section, defining the instance `$m1`, referencing (3) and (4)
 6. Alias Section, injecting `$m1.$g` into the function index space, referencing (5)
 7. Instance Section, defining the instance `$m2`, referencing (3) and (6)
 8. Alias Section, injecting `$m2.$g` into the function index space, referencing (7)
 9. Function Section, declaring `$x` in the function index space, referencing (1)
-10. ModuleCode Section, defining `$M`
-11. Code Section, defining `$x`
+10. Code Section, defining `$x`, referencing (9)
 
 This repository also contains an [initial proposal for the binary format
 updates](./Binary.md).
@@ -693,9 +682,7 @@ To summarize the proposed changes (all changes in both text and binary format):
   define types in the [type section].
 * New `module` and `instance` cases are added to [`importdesc`], referencing
   module and instance type definitions in the type section.
-* A new Module Section is added which contains a sequence of module type
-  declarations for module definitions in the ModuleCode Section.
-* A new ModuleCode Section is added which contains module definitions, encoded
+* A new Module Section is added which contains module definitions, encoded
   using the same binary format as top-level modules.
 * A new Instance Section is added which contains a sequence of instance
   definitions.

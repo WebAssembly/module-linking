@@ -12,11 +12,9 @@ with each other!
 At a high-level two new index spaces are added: modules and instances. Index
 spaces are also updated to be built incrementally as they are defined.
 
-Four new sections are added
+Three new sections are added
 
-* Module section, `modulesec`, declares nested modules whose code comes
-  later. Only types are mentioned in this section.
-* Module Code section, `modulecodesec`, defines the nested modules.
+* Module section, `modulesec`, defines nested modules.
 * Instance section, `instancesec`, declares and defines local instances.
 * Alias section, `aliassec`, brings in exports from nested instances or items
   from the parent module into the local index space.
@@ -95,14 +93,20 @@ importdesc ::=
 A new module section is added
 
 ```
-modulesec ::=  t*:section_14(vec(typeidx))           ->        t*
+modulesec ::=  m*:section_14(vec(modulecode))        ->        m*
+
+modulecode ::= size:u32 mod:module                      ->    mod, size = ||mod||
 ```
+
+Note that this is intentionally a recursive production where `module` refers to
+the top-level
+[`module`](https://webassembly.github.io/spec/core/binary/modules.html#binary-module)
 
 **Validation**
 
-* Each type index `t` points to a module type (e.g. not a function type)
-* This defines the locally defined set of modules, adding to the module index
-  space.
+* This section adds nested modules to the parent module's module index space.
+* Each nested `module` is validated with the parent's context (types and module
+  index spaces) at the point of the nested `module` in the byte stream.
 
 ## Instance section (15)
 
@@ -203,26 +207,3 @@ exportdesc ::=
 
 * Module/instance indexes must be in-bounds.
 
-## Module Code Section (17)
-
-```
-modulecodesec ::= m*:section_17(vec(modulecode))       ->    m*
-
-modulecode ::= size:u32 mod:module                      ->    mod, size = ||mod||
-```
-
-Note that this is intentionally a recursive production where `module` refers to
-the top-level
-[`module`](https://webassembly.github.io/spec/core/binary/modules.html#binary-module)
-
-**Validation**
-
-* Module definitions must match their module type exactly, no subtyping (or
-  maybe subtyping, see WebAssembly/module-linking#9).
-* Modules themselves validate recursively.
-* The module code section must have the same number of modules as the count of
-  all local module sections.
-* Each submodule is validated with the parent's context at the time of
-  declaration. For example the set of types and modules the current module
-  has defined are available for aliasing in the submodule, but only those
-  defined before the corresponding module's type declaration.
