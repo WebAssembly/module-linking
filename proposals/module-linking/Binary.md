@@ -69,12 +69,12 @@ Updates to
 [`importdesc`](https://webassembly.github.io/spec/core/binary/modules.html#binary-importdesc)
 
 ```
-# note that in MVP wasm this encoding specifies a zero-length field name, but
-# the following `0xff` byte is not a valid `importdesc` prefix, so this encoding
-# is invalid in MVP wasm
+# note that in MVP wasm this encoding specifies a zero-length `name` for the
+# second import string, but the following `0xff` byte is not a valid
+# `importdesc` prefix, so this encoding is invalid in MVP wasm
 import ::=
     ...
-    mod:name 0x00 0xff d:importdesc             ->    {module mod, desc d}
+    nm:name 0x00 0xff d:importdesc              ->    {name nm, desc d}
 
 importdesc ::=
     ...
