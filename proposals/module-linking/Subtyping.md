@@ -160,28 +160,23 @@ Some examples of valid modules are:
 
 ## Instantiation
 
-Instantiation primarily occurs via name-based resolution (e.g. in the JS API and
-other language embeddings) or position-based resolution (e.g. embedded engines).
+Within WebAssembly, instantiation is similar to subtyping: the `instantiate`
+caller (either from the JS API or an `(instance)` definition) supplies a
+sequence of (name, value) pairs and the imports of the module being
+instantiated are checked against this list, ignoring order and just matching on
+names. As with module import subtyping, the `instantiate` caller may supply
+superfluous names that are ignored and duplicate names are not allowed.
 
-It's expected that the original import list of a module is retained to map
-positional-based resolution to name-based resolution. With positional-based
-resolution imports would need to be provided as-is with the module in question
-(no sugar applied where you can supply an instance for a function import). This
-enables the engine to transform a list of imports into a map from import name to
-an instance with exports.
+While two-level imports are desugared into single-level imports of instances,
+no such desugaring is performed by `instantiate` from within WebAssembly:
+two-level imports simply do not exist and imports of instances must be passed
+instances. This is backwards-compatible since, before this proposal, only the
+JS API's `WebAssembly.instantiate` existed, which already behaved in the
+desired way.
 
-Name-based resolution wouldn't need to change too too much, it would allow
-top-level names to be defined with actual wasm instances or further host-defined
-maps of strings. Instance imports could then be satisfied with maps-of-strings
-so long as all the strings line up. Note that the `instantiate` instruction is
-expected to use named-based instantiation.
-
-In both cases instantiation is intended to become primarily name-based. This
-matches the intended behavior of the `instantiate` instruction in a wasm module
-which is to name all the provided items according to the declared module type
-that's being instantiated. This also enables embedders to work with instances
-supplied to satisfy a list of function imports. For example embedders would take
-a singular "wasi instance" to satisfy all wasi function imports from a module.
+WebAssembly *embeddings* may however choose to flatten imports of instances
+into lists of imports of the instances' fields, preserving backwards
+compatibility and avoiding the need to create intermediate instances.
 
 ## Breaking change?!
 

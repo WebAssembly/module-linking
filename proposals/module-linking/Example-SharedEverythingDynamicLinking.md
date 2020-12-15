@@ -18,11 +18,10 @@ is bundled with a compiler (like clang) to produce an SDK (like [wasi-sdk]).
 
 For our hypothetical dynamic linking convention, we'll have `libc` define and
 export a linear memory which will be imported by the rest of the program, along
-with `malloc`, `free`, etc. Thus, `libc.wasm` is roughly shaped:
+with `malloc`, `free`, etc. Thus, `$LIBC` is roughly shaped:
 
 ```wasm
-;; libc.wasm
-(module
+(module $LIBC
   (memory (export "memory") 1)
   (func (export "malloc") (param i32) (result i32) ...impl)
   ...
@@ -30,8 +29,8 @@ with `malloc`, `free`, etc. Thus, `libc.wasm` is roughly shaped:
 ```
 
 The SDK also contains standard library headers which contain declarations
-compatible with `libc.wasm`. To implement them, we first need some helper
-macros, which we'll conveniently define in `stddef.h`:
+compatible with `$LIBC`. To implement them, we first need some helper macros,
+which we'll conveniently define in `stddef.h`:
 
 ```c
 /* stddef.h */
@@ -77,19 +76,18 @@ Note that `libzip.h` annotates the `zip` declaration with an *import* attribute
 so that client modules generate proper wasm *import definitions* while `libzip.c`
 annotates the `zip` definition with an *export* attribute so this function generates
 a proper wasm *export definition*. Compiling with `clang -shared libzip.c`
-produces a `libzip.wasm` of the form:
+produces a `$LIBZIP` module:
 
 ```wasm
-;; libzip.wat
-(module
+(module $LIBZIP
   (import "libc" (instance $libc
-    (export "memory" (memory $memory 1))
-    (export "malloc" (func $malloc (param i32) (result i32)))
+    (export "memory" (memory 1))
+    (export "malloc" (func (param i32) (result i32)))
   ))
-  (alias (memory $libc $memory))  ;; default memory b/c index 0
+  (alias (memory $libc "memory"))  ;; default memory b/c index 0
   (func (export "zip") (param i32 i32 i32) (result i32)
     ...
-    call $libc.$malloc
+    call (func $libc "malloc")
     ...
   )
 )
@@ -112,36 +110,35 @@ int main(int argc, char* argv[]) {
 }
 ```
 
-When compiled with `clang zipper.c`, we get a `zipper.wasm` shaped like:
+When compiled with `clang zipper.c`, we get a `$ZIPPER` module:
 
 ```wasm
-;; zipper.wat
-(module
+(module $ZIPPER
   (type $Libc (instance
-    (export "memory" (memory $memory 1))
-    (export "malloc" (func $malloc (param i32) (result i32)))
+    (export "memory" (memory 1))
+    (export "malloc" (func (param i32) (result i32)))
   ))
   (type $LibZip (instance
-    (export "zip" (func $zip (param i32 i32 i32) (result i32)))
+    (export "zip" (func (param i32 i32 i32) (result i32)))
   ))
 
   (import "libc" (module $LIBC
-    (export $Libc)
+    (export (type outer $ZIPPER $Libc))
   ))
   (import "libzip" (module $LIBZIP
-    (import "libc" (instance (type $Libc)))
-    (export $LibZip)
+    (import "libc" (instance (type outer $ZIPPER $Libc)))
+    (export (type outer $ZIPPER $LibZip))
   ))
 
   (instance $libc (instantiate $LIBC))
-  (instance $libzip (instantiate $LIBZIP (instance $libc)))
+  (instance $libzip (instantiate $LIBZIP "libc" (instance $libc)))
 
-  (alias (memory $libc $memory))
+  (alias (memory $libc "memory"))  ;; default memory b/c index 0
   (func $main
     ...
-    call $libc.$malloc
+    call (func $libc "malloc")
     ...
-    call $libzip.$zip
+    call (func $libzip "zip")
     ...
   )
 )
@@ -152,12 +149,11 @@ performing the instantiation itself, every time a `zipper` instance is created.
 The modules are imported so that, as we'll see next, `zipper` can share modules
 with other programs that use the same libraries. However, if a developer wants a
 standalone version without any imports, a bundling tool can trivially replace
-the module imports with nested modules, producing a bundled version of `zipper`
-with the rough shape:
+the module imports with nested modules, producing a bundled `$ZIPPER-BUNDLED`
+module:
 
 ```wasm
-;; zipper-bundled.wat
-(module
+(module $ZIPPER-BUNDLED
   (module $LIBC ...copied inline)
   (module $LIBZIP ...copied inline)
   (instance $libc (instantiate $LIBC))
@@ -188,25 +184,24 @@ void* WASM_EXPORT(compress)(void* in, size_t in_size, size_t* out_size) {
 }
 ```
 
-Compiling with `clang -shared libimg.c` produces a wasm module of the shape:
+Compiling with `clang -shared libimg.c` produces a `$LIBIMG` module:
 
 ```wat
-;; libimg.wat
-(module
+(module $LIBIMG
   (import "libc" (instance $libc
-    (export "memory" (memory $memory 1))
-    (export "malloc" (func $malloc (param i32) (result i32)))
+    (export "memory" (memory 1))
+    (export "malloc" (func (param i32) (result i32)))
   ))
   (import "libzip" (instance $libzip
-    (export "zip" (func $zip (param i32 i32 i32) (result i32)))
+    (export "zip" (func (param i32 i32 i32) (result i32)))
   ))
 
-  (alias (memory $libc $memory))
+  (alias (memory $libc "memory"))  ;; default memory b/c index 0
   (func (export "compress") (param i32 i32 i32) (result i32)
     ...
-    call $libc.$malloc
+    call (func $libc "malloc")
     ...
-    call $libzip.$zip
+    call (func $libzip "zip")
     ...
   )
 )
@@ -224,19 +219,18 @@ a final build/bundle stage.
 ## imgmgk
 
 Using `libimg` we can create the `imgmgk` program. `imgmgk.c` is symmetric with
-`zipper.c` and, when compiled, produces output symmetric to `zipper.wasm`, the
+`zipper.c` and, when compiled, produces output symmetric to `$ZIPPER`, the
 main difference being the additional transitive dependency (`libzip`).
 
 ```wasm
-;; imgmgk.wat
-(module
+(module $IMGMGK
   (import "libc" (module $LIBC ...))
   (import "libzip" (module $LIBZIP ...))
   (import "libimg" (module $LIBIMG ...))
 
   (instance $libc (instantiate $LIBC))
-  (instance $libzip (instantiate $LIBZIP (instance $libc)))
-  (instance $libimg (instantiate $LIBIMG (instance $libc) (instance $libzip)))
+  (instance $libzip (instantiate $LIBZIP "libc" (instance $libc)))
+  (instance $libimg (instantiate $LIBIMG "libc" (instance $libc) "libimg" (instance $libzip)))
 
   (func $main
     ...
@@ -251,16 +245,17 @@ To illustrate sharing, let's say we now bundle together both `zipper` and
 to simply embed all dependencies into a containing bundle module:
 
 ```wasm
-;; deployment-bundle.wat
-(module
+(module $DEPLOYMENT-BUNDLE
   (module $LIBC ...copied inline)
   (module $LIBZIP ...copied inline)
   (module $LIBIMG ...copied inline)
   (module $ZIPPER ...copied inline)
   (module $IMGMGK ...copied inline)
 
-  (instance (export "zipper") (instantiate $ZIPPER (module $LIBC) (module $LIBZIP)))
-  (instance (export "imgmgk") (instantiate $IMGMGK (module $LIBC) (module $LIBZIP) (module $LIBIMG)))
+  (instance (export "zipper") (instantiate $ZIPPER
+    "libc" (module $LIBC) "libzip" (module $LIBZIP)))
+  (instance (export "imgmgk") (instantiate $IMGMGK
+    "libc" (module $LIBC) "libzip" (module $LIBZIP) "libimg" (module $LIBIMG)))
 )
 ```
 
@@ -272,16 +267,17 @@ advantage of HTTP caching by using relative URLs that are fetched by the browser
 via [ESM-integration]:
 
 ```wasm
-;; web-bundle.wat
-(module
+(module $WEB-BUNDLE
   (import "./libc.wasm" (module $LIBC ...))
   (import "./libzip.wasm" (module $LIBZIP ...))
   (import "./libimg.wasm" (module $LIBIMG ...))
   (import "./zipper.wasm" (module $ZIPPER ...))
   (import "./imgmgk.wasm" (module $IMGMGK ...))
 
-  (instance (export "zipper") (instantiate $ZIPPER (module $LIBC) (module $LIBZIP)))
-  (instance (export "imgmgk") (instantiate $IMGMGK (module $LIBC) (module $LIBZIP) (module $LIBIMG)))
+  (instance (export "zipper") (instantiate $ZIPPER
+    "libc" (module $LIBC) "libzip" (module $LIBZIP)))
+  (instance (export "imgmgk") (instantiate $IMGMGK
+    "libc" (module $LIBC) "libzip" (module $LIBZIP) "libimg" (module $LIBIMG)))
 )
 ```
 or some hybrid configuration which nests some modules and module-imports others
@@ -330,35 +326,33 @@ void* LIBZIP(zip)(void* in, size_t in_size, size_t* out_size);
 When `zipper.c` is compiled, it will include these versions in its imports:
 
 ```wasm
-;; zipper.wat
-(module
+(module $ZIPPER
   (type $Libc (instance
     (memory (export "memory") 1)
     (func (export "malloc") (param i32) (result i32))
   ))
 
   (import "libc-1.0.0" (module $LIBC
-    (export $Libc)
+    (export (type outer $ZIPPER $Libc))
   ))
   (import "libzip-3.4.5" (module $LIBZIP
-    (import "libc-1.0.0" (instance (type $Libc)))
+    (import "libc-1.0.0" (instance (type outer $ZIPPER $Libc)))
     (export "zip" (func (param i32 i32 i32) (result i32)))
   ))
 
   (instance $libc (instantiate $LIBC))
-  (instance $libzip (instantiate $LIBZIP (instance $libc)))
+  (instance $libzip (instantiate $LIBZIP "libc-1.0.0" (instance $libc)))
   ...
 )
 ```
 
 Now let's say `libc` finally adds `free` in new minor version 1.1.0. Let's also
 say `zipper` is recompiled before `libzip`, so that `libzip` is still importing
-`libc-1.0.0`, without `free`. This will produce a new `zipper.wat` which
+`libc-1.0.0`, without `free`. This will produce a new `$ZIPPER` module which
 mentions two different version numbers and instance types of `libc`:
 
 ```wasm
-;; zipper.wat
-(module
+(module $ZIPPER
   (import "libc-1.1.0" (module $LIBC
     (memory (export "memory") 1)
     (func (export "malloc") (param i32) (result i32))
@@ -373,7 +367,7 @@ mentions two different version numbers and instance types of `libc`:
   ))
 
   (instance $libc (instantiate $LIBC))
-  (instance $libzip (instantiate $LIBZIP (instance $libc)))
+  (instance $libzip (instantiate $LIBZIP "libc-1.0.0" (instance $libc)))
   ...
 )
 ```
@@ -396,7 +390,7 @@ libraries, there is no free lunch: there has to be sufficient agreement on the
 single version of `libc` and every other shared library.
 
 The situation is different, however, when bundling distinct *programs*, as we
-saw with `deployment-bundle.wat` above. In this case, since there is no sharing
+saw with `$DEPLOYMENT-BUNDLE` above. In this case, since there is no sharing
 of memory, each program can have its own major version of `libc`. In the case of
 minor/patch version changes, the bundler can implicitly upgrade programs with
 older versions to match programs with newer versions (to share more code/memory)
@@ -427,8 +421,7 @@ having `b` import `a` as a *module* and then, when `b` instantiates `a`, `b`
 supplies mutable `i32` globals containing the index of each function `a` wants
 to import of `b`'s. For example:
 ```wat
-;; a.wat
-(module
+(module $A
   (type $Libc (instance ...))
   (import "libc" (instance (type $Libc)))
   (import "bar-index" (global $bar-index mut i32))
@@ -439,20 +432,19 @@ to import of `b`'s. For example:
 )
 ```
 ```wat
-;; b.wat
-(module
+(module $B
   (type $Libc (instance ...))
-  (import "libc" (module $LIBC (export $Libc)))
+  (import "libc" (module $LIBC (export (type outer $B $Libc))))
   (instance $libc (instantiate $LIBC))
 
   (global $bar-index mut i32)
 
-  (import "./a.wasm" (module $A
-    (import "libc" (instance (type $Libc)))
-    (import "bar-index" (global mut i32))))
+  (import "a" (module $A
+    (import "libc" (instance (type outer $B $Libc)))
+    (import "bar-index" (global mut i32))
     (export "foo" (func $foo))
   ))
-  (instance $a (instantiate $A (instance $libc) (global $bar-index)))
+  (instance $a (instantiate $A "libc" (instance $libc) "bar-index" (global $bar-index)))
 
   ;; indirectly export bar to a:
   (func $bar ...)
@@ -461,7 +453,7 @@ to import of `b`'s. For example:
   (start $start)
 
   (func $run (export "run")
-    call $a.$foo
+    call (func $a "foo")
   )
 )
 ```

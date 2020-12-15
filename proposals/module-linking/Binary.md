@@ -115,7 +115,7 @@ A new section defining local instances
 ```
 instancesec ::=  i*:section_15(vec(instancedef))     ->    i*
 
-instancedef ::= 0x00 m:moduleidx e*:vec(exportdesc)   ->    {instantiate m, imports e*}
+instancedef ::= 0x00 m:moduleidx arg*:vec(export)     ->    {instantiate m, imports arg*}
 ```
 
 This defines instances in the module, appending to the instance index space.
@@ -130,18 +130,9 @@ the future we'll likely want this binary value to match that.
 * The module index `m` must be in bounds.
 * Indices of items referred to by `exportdesc` are all in-bounds. Can only refer
   to imports/previous aliases, since only those sections can precede.
-* The `e*` list is validated against the module type's declared list
-  of [imports pairwise and in-order](Explainer.md#module-imports-and-nested-instances).
-  The type of each item must be a subtype of the expected type listed in the
-  module's type.
+* The `arg*` list is validated against `m`'s imports according to
+  [module subtyping](Subtyping.md#instantiation) rules.
 
-**Execution notes**
-
-* The actual module being instantiated does not need to list imports in the
-  exact same order as its type declaration. The `e*` has names based on the
-  local module type's declaration.
-* Be sure to read up on [subtyping](./Subtyping.md) to ensure that instances
-  with a single name can be used to match imports with a two-level namespace.
 
 ## Alias section (16)
 
@@ -151,39 +142,22 @@ A new module section is added
 aliassec ::=  a*:section_16(vec(alias))     ->        a*
 
 alias ::=
-    0x00 i:instanceidx 0x00 e:exportidx      ->       (alias (instance $i) (func $e))
-    0x00 i:instanceidx 0x01 e:exportidx      ->       (alias (instance $i) (table $e))
-    0x00 i:instanceidx 0x02 e:exportidx      ->       (alias (instance $i) (memory $e))
-    0x00 i:instanceidx 0x03 e:exportidx      ->       (alias (instance $i) (global $e))
-    0x00 i:instanceidx 0x05 e:exportidx      ->       (alias (instance $i) (module $e))
-    0x00 i:instanceidx 0x06 e:exportidx      ->       (alias (instance $i) (instance $e))
-    0x01 0x05 m:moduleidx                    ->       (alias parent (module $m))
-    0x01 0x07 t:typeidx                      ->       (alias parent (type $t))
+    0x00 i:instanceidx nm:name              ->       (alias (* $i nm))
+    0x01 ct:varu32 0x05 m:moduleidx         ->       (alias (module outer ct m))
+    0x01 ct:varu32 0x07 t:typeidx           ->       (alias (type outer ct t))
 ```
 
 **Validation**
 
-* Aliased instance indexes are all in bounds. Remember "in bounds" here means it
-  can't refer to instances defined after the `alias` item.
-* Aliased instance export indices are in bounds relative to the instance's
-  *locally-declared* (via module or instance type) list of exports.
-* Export indices match the actual type of the export
-* Aliases append to the respective index space.
-* Parent aliases can only happen in submodules (not the top-level module) and
-  the index specifies is the entry, in the parent's raw index space, for that
-  item.
-* Parent aliases can only refer to preceeding module/type definitions, relative
-  to the binary location where the inline module's type was declared. Note that
-  when the module code section is defined all of the parent's modules/types are
-  available, but inline modules still may not have access to all of these if the
-  items were declared after the module's type in the corresponding module
-  section.
-
-**Execution notes**
-
-* Note for child aliases that while the export is referred to by index it's
-  actually loaded from the specified instance by name. The name loaded
-  corresponds to the `i`th export's name in the locally defined type.
+* The instance, module and type indices are all in bounds. Remember that "in bounds"
+  means only those definitions preceding this alias definition in binary format
+  order. In the case of outer aliases, this means the position of the nested module
+  definition in the outer module.
+* Aliased instance export names must be found in the instance `$i`.
+* For instance export aliases, the index space into which the alias is
+  injected is determined by the definition kind of the named export.
+* The `ct` of an outer alias must be *less than* the number of enclosing modules
+  which implicitly prevents outer aliases from appearing in top-level modules.
 
 ## Function section
 
