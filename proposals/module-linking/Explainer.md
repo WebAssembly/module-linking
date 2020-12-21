@@ -443,26 +443,8 @@ by an `<import-arg>` with a matching `<name>`. Validation also requires all
 described above, superfluous `<name>`s are valid.
 
 In the future, new productions could be added to `<instance-init>` allowing
-alternatives to `instantiate` for creating instances, such as directly from
-fields without an intermediate module.
-
-Instances can also be supplied as arguments to `instantiate`, allowing whole
-collections of fields to be passed as a single unit. For example, this module
-imports a `wasi_file` instance and passes it on to the child:
-```wasm
-(module $PARENT
-  (type $WasiFile (instance
-    (export "read" (func (param i32 i32 i32) (result i32)))
-    (export "write" (func (param i32 i32 i32) (result i32)))
-    ...
-  ))
-  (import "wasi_file" (instance $wasi-file (type $WasiFile)))
-  (import "child" (module $CHILD
-    (import "wasi_file" (instance (type outer $PARENT $WasiFile)))
-  ))
-  (instance (instantiate $CHILD "wasi_file" (instance $wasi-file)))
-)
-```
+alternatives to `instantiate` for creating instances, such as direct tupling
+of individual definitions into an instance, without an intermediate module.
 
 In general, the arguments of `instantiate` can refer to any preceding type,
 import, module, instance or alias definition. This includes all imports and
@@ -519,44 +501,79 @@ space as module imports and thus can be instantiated the same way. For example:
 Unlike most source-language nested functions/classes, nested modules have no
 special access to their parents' state. However, since modules and types are
 closed, stateless expressions which would otherwise be duplicated, sharing is
-allowed between children and parents via a new kind of `outer` alias:
+allowed between nested and outer modules via a new kind of "outer" alias. To
+prevent cross-module cycles, outer aliases in a nested module can only refer to
+definitions in outer modules that precede it (in text, binary and abstract syntax
+order).
+
+As an example, when an instance import is passed from a parent module to its
+child module, the child can use an outer alias to avoid duplicating the
+instance type:
 ```wasm
 (module $PARENT
-  (type $WasiFile (instance $wasi-file
-    (export "read" (func (param i32 i32 i32) (result i32)))
+  (type $FileOps (instance
+    ... many function exports
   ))
+  (import "fileops" (instance $fileops (type $FileOps)))
   (module $CHILD
-    (alias (type $WasiFile outer $PARENT $WasiFile))
-    (import "wasi_file" (instance (type $WasiFile)))
+    (alias (type $FOps outer $PARENT $FileOps))
+    (import "fileops" (instance $fops (type $FOps)))
+    ...
   )
+  (instance $child (instantiate $CHILD "fileops" (instance $fileops)))
+  ...
 )
 ```
-Just like for instance-export aliases, a new form of inline sugar for outer
-aliases:
+The `outer` keyword in an `alias` definition indicates that the aliased
+definition is found by a pair of: the outer module and the desired definition
+within that outer module. This pair can be specified in the text format via
+two identifiers, as shown in this example. In the binary format, the pair is
+specified via [De Bruijn index]. Each module's identifier namespace is disjoint
+and thus it would be a parsing error in this example if `$CHILD` attempted to
+use `$FileOps` directly. Moreover, `$FOps` could be renamed to `$FileOps`
+without any shadowing taking place.
+
+A new form of inline sugar is added for outer aliases, symmetric to the export
+alias sugar introduced above. For example, the above `$CHILD` module could have
+been equivalently written:
+```wasm
+  (module $CHILD
+    (import "fileops" (instance $fops (type outer $PARENT $FileOps)))
+    ...
+  )
+```
+which would generate the same abstract syntax and binary representation.
+
+One subtle related detail is that ([in preparation for type imports and
+exports][Issue-21]) module and instance *types* are like nested modules in that
+they create new, *empty* index- and name-spaces. For example, in the following
+example, outer aliases must be used in order to reuse the `$Libc` and
+`$FileOps` type definitions in the module type of `$IN_MEMORY_FS`:
 ```wasm
 (module $PARENT
-  (type $WasiFile (instance $wasi-file
-    (export "read" (func (param i32 i32 i32) (result i32)))
+  (type $Libc (instance
+    ...
   ))
-  (module $CHILD
-    (import "wasi_file" (instance (type outer $PARENT $WasiFile)))
-  )
+  (type $FileOps (instance
+    ...
+  ))
+  (import "in-memory-fs" (module $IN_MEMORY_FS
+    (import "libc" (instance (type outer $PARENT $Libc)))
+    (export "fileops" (instance (type outer $PARENT $FileOps)))
+  ))
+  ...
 )
 ```
-Thus, the above two modules produce the same abstract syntax and binary
-representation.
+These aliases are necessary since, within the scope of the type of
+`$IN_MEMORY_FS`, the type index space is initially empty.
 
-Outer aliases in a nested module can only refer to definitions in outer modules
-that precede it. This is necessary to ensure that type and module definitions
-are not cyclic across module boundaries.
-
-In general, language-independent tools can easily merge multiple `.wasm` files
-in a dependency graph into one `.wasm` file by performing simple transformations
-that do not require relocations or other fixup-enabling metadata. The reverse
-transformation is also possible and producer-toolchain-independent: a nested
-module of a `.wasm` file can be split out into a new `.wasm` file by duplicating
-aliased definitions. Thus, nested modules can be a useful tool for packaging and
-bundling tools.
+In general, language-independent tools can merge multiple `.wasm` files in a
+dependency graph into one `.wasm` file by performing transformations that do
+not require relocations or any other metadata from the toolchain. The reverse
+transformation is also possible: the nested modules of a `.wasm` can be split
+out into their own `.wasm` files by duplicating outer-aliased definitions.
+Thus, bundling and packaging tools have a high degree of flexibility in
+determining the final deployment artifacts.
 
 In the future, nested modules may be independently useful for [feature testing]
 or supplying first-class module references (via `ref.module $module-index`) to
@@ -610,10 +627,10 @@ which is allowed in module *types*, zero-level exports are also allowed in
 module *definitions* as a convenient way to define a module's exports to be
 that of a given instance.
 
-For example, this (outer) module:
+For example, this module:
 ```wasm
 (module
-  (module $M (func (export "foo") ...))
+  (module $M (func (export "foo")))
   (instance $i (instantiate $M))
   (export $i)
 )
@@ -822,6 +839,7 @@ transparently share library code as described in
 [ESM-integration]: https://github.com/WebAssembly/esm-integration
 [Function References]: https://github.com/WebAssembly/function-references
 [Feature Testing]: https://github.com/WebAssembly/conditional-sections/issues/22
+[Issue-21]: https://github.com/WebAssembly/module-linking/issues/21
 
 [`dlopen`]: https://pubs.opengroup.org/onlinepubs/009695399/functions/dlopen.html
 [`dlsym`]: https://pubs.opengroup.org/onlinepubs/009695399/functions/dlsym.html

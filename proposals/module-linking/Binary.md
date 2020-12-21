@@ -35,22 +35,30 @@ Updates to
 typesec ::=  t*:section_1(vec(type))
 
 type ::=
-            0x60 ft:functype                    ->        ft
-            0x61 mt:moduletype                  ->        mt
-            0x62 it:instancetype                ->        it
+            0x60 ft:functype                     ->       ft
+            0x61 mt:moduletype                   ->       mt
+            0x62 it:instancetype                 ->       it
 
-functype ::= rt_1:resulttype rt_2:resulttype    ->        rt_1 -> rt-2
+functype     ::= rt_1:resulttype rt_2:resulttype ->       rt_1 -> rt-2
+moduletype   ::= mtd*:vec(moduletypedef)         ->       mtd*
+instancetype ::= itd*:vec(instancetypedef)       ->       itd*
 
-moduletype ::=
-  i*:vec(import) e*:vec(exporttype)             ->        {imports i*, exports e*}
+moduletypedef ::=
+            itd                                  ->       itd
+            0x02 i:import                        ->       {import i}
 
-instancetype ::= e*:vec(exporttype)             ->        {exports e*}
+instancetypedef ::=
+            0x01 t:type                          ->       {type t}
+            0x07 et:exporttype                   ->       {export et}
+            0x0f a:alias                         ->       {alias a}
 
-exporttype ::= nm:name d:importdesc             ->        {name nm, desc d}
+exporttype ::= nm:name d:importdesc              ->       {name nm, desc d}
 ```
 
-referencing:
+Note: the numeric discriminants in `moduletypedef` are chosen to match the
+section numbers for the corresponding sections.
 
+Referencing:
 * [`resulttype`](https://webassembly.github.io/spec/core/binary/types.html#binary-resulttype)
 * [`import`](https://webassembly.github.io/spec/core/binary/modules.html#binary-import)
 * [`importdesc`](https://webassembly.github.io/spec/core/binary/modules.html#binary-importdesc) -
@@ -58,7 +66,10 @@ referencing:
 
 **Validation**
 
-* each `importdesc` is valid according to import section
+* The `moduletypedef`s of a `moduletype` are validated in a fresh set of index
+  spaces (currently, only the type index space is used). Thus, the function
+  type of a function export must either be defined inside the `moduletype` or
+  aliased. The same goes for `instancetypedef`s and `instancetype`s.
 * Types can only reference preceding type definitions. This forces everything to
   be a DAG and forbids cyclic types. TODO: with type imports we may need cyclic
   types, so this validation will likely change in some form.
