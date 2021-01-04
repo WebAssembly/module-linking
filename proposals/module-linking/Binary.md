@@ -153,9 +153,14 @@ A new module section is added
 aliassec ::=  a*:section_16(vec(alias))     ->        a*
 
 alias ::=
-    0x00 i:instanceidx nm:name              ->       (alias (* $i nm))
-    0x01 ct:varu32 0x05 m:moduleidx         ->       (alias (module outer ct m))
-    0x01 ct:varu32 0x07 t:typeidx           ->       (alias (type outer ct t))
+    0x00 i:instanceidx 0x00 nm:name         ->        (alias (func $i "nm"))
+    0x00 i:instanceidx 0x01 nm:name         ->        (alias (table $i "nm"))
+    0x00 i:instanceidx 0x02 nm:name         ->        (alias (memory $i "nm"))
+    0x00 i:instanceidx 0x03 nm:name         ->        (alias (global $i "nm"))
+    0x00 i:instanceidx 0x05 nm:name         ->        (alias (module $i "nm"))
+    0x00 i:instanceidx 0x06 nm:name         ->        (alias (instance $i "nm"))
+    0x01 ct:varu32 0x05 m:moduleidx         ->        (alias (module outer ct m))
+    0x01 ct:varu32 0x07 t:typeidx           ->        (alias (type outer ct t))
 ```
 
 **Validation**
@@ -164,9 +169,8 @@ alias ::=
   means only those definitions preceding this alias definition in binary format
   order. In the case of outer aliases, this means the position of the nested module
   definition in the outer module.
-* Aliased instance export names must be found in the instance `$i`.
-* For instance export aliases, the index space into which the alias is
-  injected is determined by the definition kind of the named export.
+* Aliased instance export names must be found in `i`'s instance type with a
+  matching definition kind.
 * The `ct` of an outer alias must be *less than* the number of enclosing modules
   which implicitly prevents outer aliases from appearing in top-level modules.
 
