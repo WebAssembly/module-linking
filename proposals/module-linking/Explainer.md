@@ -607,7 +607,7 @@ inline-alias syntax is extended to allow a sequence of N export names:
   (import "i" (instance $i
     (export "j" (instance
       (export "k" (func))))))
-  (func (call (func $i "j" "k" "l")))
+  (func (call (func $i "j" "k")))
 )
 ```
 which desugars to:
