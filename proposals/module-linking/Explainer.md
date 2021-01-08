@@ -348,15 +348,15 @@ accessed by creating an *alias*:
     (export "f1" (func))
     (export "f2" (func (param i32)))
   ))
-  (alias (func $f $i "f1"))
+  (alias $f (func $i "f1"))
   (func (export "run")
     call $f
   )
 )
 ```
 This `alias` definition adds the `f1` export of the import `$i` into the
-function index space of the module so that it may later be referenced by
-instructions like `call`.
+function index space of the module so that it may later be referenced via
+the identifier/index `$f` by instructions like `call`.
 
 As syntactic sugar, aliases may be created implicitly via a new form of
 syntactic sugar:
@@ -454,9 +454,9 @@ example, the following module (with desugared aliases) is valid:
 (module
   (import "a" (instance $a (export "f" (func))))
   (import "b" (module $B (import "g" (func)) (export "h" (func))))
-  (alias (func $a.f $a "f"))
+  (alias $a.f (func $a "f"))
   (instance $b1 (instantiate $B "g" (func $a.f)))
-  (alias (func $b1.h $b1 "h"))
+  (alias $b1.h (func $b1 "h"))
   (instance $b2 (instantiate $B "g" (func $b1.h)))
 )
 ```
@@ -516,7 +516,7 @@ instance type:
   ))
   (import "fileops" (instance $fileops (type $FileOps)))
   (module $CHILD
-    (alias (type $FOps outer $PARENT $FileOps))
+    (alias $FOps (type outer $PARENT $FileOps))
     (import "fileops" (instance $fops (type $FOps)))
     ...
   )
@@ -616,8 +616,8 @@ which desugars to:
   (import "i" (instance $i
     (export "j" (instance
       (export "k" (func))))))
-  (alias (instance $j $i "j"))
-  (alias (func $k $j "k"))
+  (alias $j (instance $i "j"))
+  (alias $k (func $j "k"))
   (func (call $k))
 )
 ```
