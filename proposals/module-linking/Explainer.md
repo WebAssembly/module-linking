@@ -348,7 +348,7 @@ accessed by creating an *alias*:
     (export "f1" (func))
     (export "f2" (func (param i32)))
   ))
-  (alias $f (func $i "f1"))
+  (alias $i "f1" (func $f))
   (func (export "run")
     call $f
   )
@@ -386,8 +386,8 @@ for a default memory or table:
     (export "mem" (memory 1))
     (export "tbl" (table 0 funcref))
   ))
-  (alias (memory $libc "mem"))  ;; aliases "mem" at memory index 0 (= default)
-  (alias (table $libc "tbl"))   ;; aliases "tbl" at table index 0 (= default)
+  (alias $libc "mem" (memory))  ;; aliases "mem" at memory index 0 (= default)
+  (alias $libc "tbl" (table))   ;; aliases "tbl" at table index 0 (= default)
   (func
     ...
     i32.load  ;; accesses the default memory, $libc.mem
@@ -415,7 +415,7 @@ example, in this code:
     (export "out" (func $out))
   ))
   (import "f" (func $f))
-  (instance $i (instantiate $M "in" (func $f)))
+  (instance $i (instantiate $M (import "in" (func $f))))
   (func (export "run")
     call (func $i "out")
   )
@@ -427,7 +427,7 @@ instance `$i`. `instance` definitions have the form:
 ```
 instance-def  ::= (instance <id>? <instance-init>)
 instance-init ::= (instantiate <moduleidx> <import-arg>*)
-import-arg    ::= <name> <import-val>
+import-arg    ::= (import <name> <import-val>)
 import-val    ::= (func <funcidx>)
                 | (memory <memidx>)
                 | (table <tableidx>)
@@ -454,10 +454,10 @@ example, the following module (with desugared aliases) is valid:
 (module
   (import "a" (instance $a (export "f" (func))))
   (import "b" (module $B (import "g" (func)) (export "h" (func))))
-  (alias $a.f (func $a "f"))
-  (instance $b1 (instantiate $B "g" (func $a.f)))
-  (alias $b1.h (func $b1 "h"))
-  (instance $b2 (instantiate $B "g" (func $b1.h)))
+  (alias $a "f" (func $a.f))
+  (instance $b1 (instantiate $B (import "g" (func $a.f))))
+  (alias $b1 "h" (func $b1.h))
+  (instance $b2 (instantiate $B (import "g" (func $b1.h))))
 )
 ```
 Notably, `instantiate` cannot refer to any local function, memory, table or
@@ -470,7 +470,7 @@ is not valid:
 (module
   (import "A" (module $A (import "f" (func))))
   (func $g ...)
-  (instance $a (instantiate $A "f" (func $g))) ;; error, $g not visible to instantiate
+  (instance $a (instantiate $A (import "f" (func $g)))) ;; error, $g not visible to instantiate
 )
 ```
 From the perspective of a WebAssembly [embedding], this proposal changes
@@ -516,11 +516,11 @@ instance type:
   ))
   (import "fileops" (instance $fileops (type $FileOps)))
   (module $CHILD
-    (alias $FOps (type outer $PARENT $FileOps))
+    (alias outer $PARENT $FileOps (type $FOps))
     (import "fileops" (instance $fops (type $FOps)))
     ...
   )
-  (instance $child (instantiate $CHILD "fileops" (instance $fileops)))
+  (instance $child (instantiate $CHILD (import "fileops" (instance $fileops))))
   ...
 )
 ```
@@ -616,8 +616,8 @@ which desugars to:
   (import "i" (instance $i
     (export "j" (instance
       (export "k" (func))))))
-  (alias $j (instance $i "j"))
-  (alias $k (func $j "k"))
+  (alias $i "j" (instance $j))
+  (alias $j "k" (func $k))
   (func (call $k))
 )
 ```
@@ -683,8 +683,8 @@ As an example, the text module:
   (module $M
     (import "g" (func))
     (func (export "h")))
-  (instance $m1 (instantiate $M "g" (func $a "f")))
-  (instance $m2 (instantiate $M "g" (func $m1 "h")))
+  (instance $m1 (instantiate $M (import "g" (func $a "f"))))
+  (instance $m2 (instantiate $M (import "g" (func $m1 "h"))))
   (func $x (call (func $m2 "h")))
 )
 ```

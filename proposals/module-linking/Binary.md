@@ -153,14 +153,14 @@ A new module section is added
 aliassec ::=  a*:section_16(vec(alias))     ->        a*
 
 alias ::=
-    0x00 i:instanceidx 0x00 nm:name         ->        (alias (func $i "nm"))
-    0x00 i:instanceidx 0x01 nm:name         ->        (alias (table $i "nm"))
-    0x00 i:instanceidx 0x02 nm:name         ->        (alias (memory $i "nm"))
-    0x00 i:instanceidx 0x03 nm:name         ->        (alias (global $i "nm"))
-    0x00 i:instanceidx 0x05 nm:name         ->        (alias (module $i "nm"))
-    0x00 i:instanceidx 0x06 nm:name         ->        (alias (instance $i "nm"))
-    0x01 ct:varu32 0x05 m:moduleidx         ->        (alias (module outer ct m))
-    0x01 ct:varu32 0x07 t:typeidx           ->        (alias (type outer ct t))
+    0x00 i:instanceidx 0x00 nm:name         ->        (alias $i "nm" (func))
+    0x00 i:instanceidx 0x01 nm:name         ->        (alias $i "nm" (table))
+    0x00 i:instanceidx 0x02 nm:name         ->        (alias $i "nm" (memory))
+    0x00 i:instanceidx 0x03 nm:name         ->        (alias $i "nm" (global))
+    0x00 i:instanceidx 0x05 nm:name         ->        (alias $i "nm" (module))
+    0x00 i:instanceidx 0x06 nm:name         ->        (alias $i "nm" (instance))
+    0x01 ct:varu32 0x05 m:moduleidx         ->        (alias outer ct m (module))
+    0x01 ct:varu32 0x07 t:typeidx           ->        (alias outer ct m (type))
 ```
 
 **Validation**

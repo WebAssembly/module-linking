@@ -64,8 +64,8 @@ We can now write the parent module by composing `$VIRTUALIZE` and `$CHILD`:
     (export "play" (func))
   ))
 
-  (instance $virt-wasi (instantiate $VIRTUALIZE "wasi_file" (instance $real-wasi)))
-  (instance $child (instantiate $CHILD "wasi_file" (instance $virt-wasi)))
+  (instance $virt-wasi (instantiate $VIRTUALIZE (import "wasi_file" (instance $real-wasi))))
+  (instance $child (instantiate $CHILD (import "wasi_file" (instance $virt-wasi))))
 
   (func (export "work")
     ...

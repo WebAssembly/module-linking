@@ -84,7 +84,7 @@ produces a `$LIBZIP` module:
     (export "memory" (memory 1))
     (export "malloc" (func (param i32) (result i32)))
   ))
-  (alias (memory $libc "memory"))  ;; default memory b/c index 0
+  (alias $libc "memory" (memory))  ;; default memory b/c index 0
   (func (export "zip") (param i32 i32 i32) (result i32)
     ...
     call (func $libc "malloc")
@@ -131,9 +131,9 @@ When compiled with `clang zipper.c`, we get a `$ZIPPER` module:
   ))
 
   (instance $libc (instantiate $LIBC))
-  (instance $libzip (instantiate $LIBZIP "libc" (instance $libc)))
+  (instance $libzip (instantiate $LIBZIP (import "libc" (instance $libc))))
 
-  (alias (memory $libc "memory"))  ;; default memory b/c index 0
+  (alias $libc "memory" (memory))  ;; default memory b/c index 0
   (func $main
     ...
     call (func $libc "malloc")
@@ -196,7 +196,7 @@ Compiling with `clang -shared libimg.c` produces a `$LIBIMG` module:
     (export "zip" (func (param i32 i32 i32) (result i32)))
   ))
 
-  (alias (memory $libc "memory"))  ;; default memory b/c index 0
+  (alias $libc "memory" (memory))  ;; default memory b/c index 0
   (func (export "compress") (param i32 i32 i32) (result i32)
     ...
     call (func $libc "malloc")
@@ -229,8 +229,13 @@ main difference being the additional transitive dependency (`libzip`).
   (import "libimg" (module $LIBIMG ...))
 
   (instance $libc (instantiate $LIBC))
-  (instance $libzip (instantiate $LIBZIP "libc" (instance $libc)))
-  (instance $libimg (instantiate $LIBIMG "libc" (instance $libc) "libimg" (instance $libzip)))
+  (instance $libzip (instantiate $LIBZIP
+    (import "libc" (instance $libc))
+  ))
+  (instance $libimg (instantiate $LIBIMG
+    (import "libc" (instance $libc))
+    (import "libimg" (instance $libzip))
+  ))
 
   (func $main
     ...
@@ -253,9 +258,14 @@ to simply embed all dependencies into a containing bundle module:
   (module $IMGMGK ...copied inline)
 
   (instance (export "zipper") (instantiate $ZIPPER
-    "libc" (module $LIBC) "libzip" (module $LIBZIP)))
+    (import "libc" (module $LIBC))
+    (import "libzip" (module $LIBZIP))
+  ))
   (instance (export "imgmgk") (instantiate $IMGMGK
-    "libc" (module $LIBC) "libzip" (module $LIBZIP) "libimg" (module $LIBIMG)))
+    (import "libc" (module $LIBC))
+    (import "libzip" (module $LIBZIP))
+    (import "libimg" (module $LIBIMG))
+  ))
 )
 ```
 
@@ -275,9 +285,14 @@ via [ESM-integration]:
   (import "./imgmgk.wasm" (module $IMGMGK ...))
 
   (instance (export "zipper") (instantiate $ZIPPER
-    "libc" (module $LIBC) "libzip" (module $LIBZIP)))
+    (import "libc" (module $LIBC))
+    (import "libzip" (module $LIBZIP))
+  ))
   (instance (export "imgmgk") (instantiate $IMGMGK
-    "libc" (module $LIBC) "libzip" (module $LIBZIP) "libimg" (module $LIBIMG)))
+    (import "libc" (module $LIBC))
+    (import "libzip" (module $LIBZIP))
+    (import "libimg" (module $LIBIMG))
+  ))
 )
 ```
 or some hybrid configuration which nests some modules and module-imports others
@@ -341,7 +356,7 @@ When `zipper.c` is compiled, it will include these versions in its imports:
   ))
 
   (instance $libc (instantiate $LIBC))
-  (instance $libzip (instantiate $LIBZIP "libc-1.0.0" (instance $libc)))
+  (instance $libzip (instantiate $LIBZIP (import "libc-1.0.0" (instance $libc))))
   ...
 )
 ```
@@ -367,7 +382,7 @@ mentions two different version numbers and instance types of `libc`:
   ))
 
   (instance $libc (instantiate $LIBC))
-  (instance $libzip (instantiate $LIBZIP "libc-1.0.0" (instance $libc)))
+  (instance $libzip (instantiate $LIBZIP (import "libc-1.0.0" (instance $libc))))
   ...
 )
 ```
@@ -444,7 +459,10 @@ to import of `b`'s. For example:
     (import "bar-index" (global mut i32))
     (export "foo" (func $foo))
   ))
-  (instance $a (instantiate $A "libc" (instance $libc) "bar-index" (global $bar-index)))
+  (instance $a (instantiate $A
+    (import "libc" (instance $libc)
+    (import "bar-index" (global $bar-index))
+  ))
 
   ;; indirectly export bar to a:
   (func $bar ...)
