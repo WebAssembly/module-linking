@@ -358,6 +358,12 @@ This `alias` definition adds the `f1` export of the import `$i` into the
 function index space of the module so that it may later be referenced via
 the identifier/index `$f` by instructions like `call`.
 
+[Similar to imports][func-import-abbrev], aliases can also be written in
+an inverted form that puts the definition kind first:
+```wasm
+(func $f (alias $i "f1"))  ;; ≡ (alias $i "f1" (func $f))
+```
+
 As syntactic sugar, aliases may be created implicitly via a new form of
 syntactic sugar:
 ```wasm
@@ -829,6 +835,7 @@ transparently share library code as described in
 [`importdesc`]: https://webassembly.github.io/spec/core/syntax/modules.html#syntax-importdesc
 [`exportdesc`]: https://webassembly.github.io/spec/core/syntax/modules.html#syntax-exportdesc
 [`module` binary format production]: https://webassembly.github.io/spec/core/binary/modules.html#binary-module
+[func-import-abbrev]: https://webassembly.github.io/spec/core/text/modules.html#text-func-abbrev
 
 [Shared-Nothing Linking]: https://github.com/WebAssembly/interface-types/blob/master/proposals/interface-types/Explainer.md#enabling-shared-nothing-linking-of-webassembly-modules
 [Interface Types]: https://github.com/WebAssembly/interface-types/blob/master/proposals/interface-types/Explainer.md
