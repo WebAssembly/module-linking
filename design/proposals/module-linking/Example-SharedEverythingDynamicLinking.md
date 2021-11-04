@@ -1,27 +1,27 @@
-# Shared-Everything Dynamic Linking Example
+# Shared-Everything C-family Dynamic Linking Example
 
 This document walks through the 
-[Shared-Everything Dynamic Linking](Explainer.md#shared-everything-dynamic-linking)
+[Shared-Everything C-family Dynamic Linking](Explainer.md#shared-everything-c-family-dynamic-linking)
 use case. One high-level point to make before starting is that the scheme
 outlined below avoids the need for any sort of runtime loader (like `ld.so`).
-Rather, Module Linking proposal is used in such a way that the wasm engine ends
-up doing everything.
+Rather, Module Linking proposal is used in such a way that the wasm engine
+itself ends up serving this purpose. Due to the declarative linking structure
+of Module Linking, this allows the wasm engine to more aggressively optimize
+across modules.
 
-As with native, shared-everything dynamic linking is rather involved, requiring
-conventions followed by the toolchain, shared libraries and programs. We start
-with `libc`:
+## `libc`
 
-## libc
-
-`libc` is special in that, conventionally, an implementation (like [wasi-libc])
-is bundled with a compiler (like clang) to produce an SDK (like [wasi-sdk]).
+As with native dynamic linking, shared-everything dynamic linking requires
+conventions followed by the toolchains producing the participating modules.
+In this convention, `libc` is special in that, conventionally, an
+implementation (like [wasi-libc]) is bundled with a compiler (like clang) to
+produce an SDK (like [wasi-sdk]).
 
 For our hypothetical dynamic linking convention, we'll have `libc` define and
 export a linear memory which will be imported by the rest of the program, along
-with `malloc`, `free`, etc. Thus, `$LIBC` is roughly shaped:
-
+with `malloc`, `free`, etc. Thus, `$Libc` is roughly shaped:
 ```wasm
-(module $LIBC
+(module $Libc
   (memory (export "memory") 1)
   (func (export "malloc") (param i32) (result i32) ...impl)
   ...
@@ -29,9 +29,8 @@ with `malloc`, `free`, etc. Thus, `$LIBC` is roughly shaped:
 ```
 
 The SDK also contains standard library headers which contain declarations
-compatible with `$LIBC`. To implement them, we first need some helper macros,
+compatible with `$Libc`. To implement them, we first need some helper macros,
 which we'll conveniently define in `stddef.h`:
-
 ```c
 /* stddef.h */
 #define WASM_IMPORT(module,name) __attribute__((import_module(#module), import_name(#name))) name
@@ -43,7 +42,6 @@ and [`export_name`] to ensure that the annotated C functions produce the
 correct wasm import or export definitions. Other compilers would use their own
 magic syntax to achieve the same effect. Using these macros, we can declare
 `malloc` in `stdlib.h`:
-
 ```c
 /* stdlib.h */
 #include <stddef.h>
@@ -51,11 +49,16 @@ magic syntax to achieve the same effect. Using these macros, we can declare
 void* LIBC(malloc)(size_t n);
 ```
 
-## libzip
+With these annotations, C programs that include this header will be compiled
+to contain an [import definition](Explainer.md#import-definitions):
+```wasm
+(import "libc" "malloc" (func (param i32) (result i32)))
+```
 
-With `libc` sketched out, we have a functional SDK we can now use to create the
-shared library `libzip`. Its C definition has the rough shape:
+## `libzip`
 
+With `libc`, we have a functional SDK that we can now use to create the shared
+library `libzip`. Its C definition has the rough shape:
 ```c
 /* libzip.h */
 #include <stddef.h>
@@ -76,27 +79,20 @@ Note that `libzip.h` annotates the `zip` declaration with an *import* attribute
 so that client modules generate proper wasm *import definitions* while `libzip.c`
 annotates the `zip` definition with an *export* attribute so this function generates
 a proper wasm *export definition*. Compiling with `clang -shared libzip.c`
-produces a `$LIBZIP` module:
-
+produces a `$Libzip` module shaped like:
 ```wasm
-(module $LIBZIP
-  (import "libc" (instance $libc
-    (export "memory" (memory 1))
-    (export "malloc" (func (param i32) (result i32)))
-  ))
-  (alias $libc "memory" (memory))  ;; default memory b/c index 0
+(module $Libzip
+  (import "libc" "memory" (memory 1))
+  (import "libc" "malloc" (func (param i32) (result i32)))
   (func (export "zip") (param i32 i32 i32) (result i32)
-    ...
-    call (func $libc "malloc")
     ...
   )
 )
 ```
 
-## zipper
+## `zipper`
 
-Using `libc` and `libzip`, we can now write the `zipper` program:
-
+Using `libc` and `libzip`, we can now implement the `zipper` component:
 ```c
 /* zipper.c */
 #include <stdlib.h>
@@ -110,63 +106,58 @@ int main(int argc, char* argv[]) {
 }
 ```
 
-When compiled with `clang zipper.c`, we get a `$ZIPPER` module:
-
+When compiled with `clang zipper.c`, we get a `$Zipper` module:
 ```wasm
-(module $ZIPPER
-  (type $Libc (instance
+(adapter_module $Zipper
+  (type $LibcInstance (instance
     (export "memory" (memory 1))
     (export "malloc" (func (param i32) (result i32)))
   ))
-  (type $LibZip (instance
+  (type $LibZipInstance (instance
     (export "zip" (func (param i32 i32 i32) (result i32)))
   ))
 
-  (import "libc" (module $LIBC
-    (export (type outer $ZIPPER $Libc))
+  (import "libc" (module $Libc
+    (export $LibcInstance)
   ))
-  (import "libzip" (module $LIBZIP
-    (import "libc" (instance (type outer $ZIPPER $Libc)))
-    (export (type outer $ZIPPER $LibZip))
+  (import "libzip" (module $Libzip
+    (import "libc" (instance $LibcInstance))
+    (export $LibZipInstance)
   ))
 
-  (instance $libc (instantiate $LIBC))
-  (instance $libzip (instantiate $LIBZIP (import "libc" (instance $libc))))
-
-  (alias $libc "memory" (memory))  ;; default memory b/c index 0
-  (func $main
-    ...
-    call (func $libc "malloc")
-    ...
-    call (func $libzip "zip")
+  (module $Core
+    (import "libc" "memory" (memory 1))
+    (import "libc" "malloc" (func (param i32) (result i32)))
+    (import "libzip" "zip" (func (param i32 i32 i32) (result i32)))
     ...
   )
+
+  (instance $libc (instantiate $Libc))
+  (instance $libzip (instantiate $Libzip
+    (import "libc" (instance $libc))
+  ))
+  (instance $core (instantiate $Core
+    (import "libc" (instance $libc))
+    (import "libzip" (instance $libzip))
+  ))
 )
 ```
 
-Note that, `zipper` imports `libc` and `libzip` as *modules*, not *instances*,
-performing the instantiation itself, every time a `zipper` instance is created.
-The modules are imported so that, as we'll see next, `zipper` can share modules
-with other programs that use the same libraries. However, if a developer wants a
-standalone version without any imports, a bundling tool can trivially replace
-the module imports with nested modules, producing a bundled `$ZIPPER-BUNDLED`
-module:
+Note that `$Zipper` imports `$Libc` and `$Libzip` as *modules*, not *instances*,
+performing the instantiation itself. Thus, every instance of `$Zipper` will get
+a fresh, encapsulated instance of `$Libc` and `$Libzip`, even when these modules
+are shared with other components (as will be done below).
 
-```wasm
-(module $ZIPPER-BUNDLED
-  (module $LIBC ...copied inline)
-  (module $LIBZIP ...copied inline)
-  (instance $libc (instantiate $LIBC))
-  (instance $libzip (instantiate $LIBZIP))
-  (func $main ...)
-)
-```
+The duplication of function signatures in `$Core` is an unfortunate consequence
+of layering: since Core WebAssembly is not modified by the Component Model,
+there is no way for `$Core` to [alias](Explainer.md#alias-definitions) the
+outer type definitions of `$Zipper`.
 
-## libimg
 
-Next we create a shared library `libimg` that depends on `libzip`. The C
-definition is quite symmetric to `libzip`:
+## `libimg`
 
+Next we create a shared library `libimg` that depends on `libzip` by
+importing `libzip.h` from `libimg.c`:
 ```c
 /* libimg.h */
 #include <stddef.h>
@@ -184,126 +175,91 @@ void* WASM_EXPORT(compress)(void* in, size_t in_size, size_t* out_size) {
 }
 ```
 
-Compiling with `clang -shared libimg.c` produces a `$LIBIMG` module:
-
+Compiling with `clang -shared libimg.c` produces a `$Libimg` module:
 ```wat
-(module $LIBIMG
-  (import "libc" (instance $libc
-    (export "memory" (memory 1))
-    (export "malloc" (func (param i32) (result i32)))
-  ))
-  (import "libzip" (instance $libzip
-    (export "zip" (func (param i32 i32 i32) (result i32)))
-  ))
-
-  (alias $libc "memory" (memory))  ;; default memory b/c index 0
+(module $Libimg
+  (import "libc" "memory" (memory 1))
+  (import "libc" "malloc" (func (param i32) (result i32)))
+  (import "libzip" "zip" (func (param i32 i32 i32) (result i32)))
   (func (export "compress") (param i32 i32 i32) (result i32)
-    ...
-    call (func $libc "malloc")
-    ...
-    call (func $libzip "zip")
     ...
   )
 )
 ```
 
-Note that `libimg` imports *both* `libc` and `libzip` as instances. This ensures
-that if there are multiple uses of `libzip` in the client program of `libimg`,
-that the program only contains one `libzip` instance shared by all. Concretely,
-this ensures that, e.g., there is only one copy of the C static data declared by
-`libzip` in the program. While this requires all shared libraries to import all
-their dependencies, higher-level tooling can automate this process so that no
-manual recompilation is necessary; the propagation can happen automatically at
-a final build/bundle stage.
+## `imgmgk`
 
-## imgmgk
-
-Using `libimg` we can create the `imgmgk` program. `imgmgk.c` is symmetric with
-`zipper.c` and, when compiled, produces output symmetric to `$ZIPPER`, the
-main difference being the additional transitive dependency (`libzip`).
-
+The `imgmgk` component is symmetric to the `zipper` component; the main
+difference in the output is the addition of the `libzip` dependency:
 ```wasm
-(module $IMGMGK
-  (import "libc" (module $LIBC ...))
-  (import "libzip" (module $LIBZIP ...))
-  (import "libimg" (module $LIBIMG ...))
+(adapter_module $Imgmgk
+  (import "libc" (module $Libc ...))
+  (import "libzip" (module $Libzip ...))
+  (import "libimg" (module $Libimg ...))
 
-  (instance $libc (instantiate $LIBC))
-  (instance $libzip (instantiate $LIBZIP
+  (instance $libc (instantiate $Libc))
+  (instance $libzip (instantiate $Libzip
     (import "libc" (instance $libc))
   ))
-  (instance $libimg (instantiate $LIBIMG
+  (instance $libimg (instantiate $Libimg
     (import "libc" (instance $libc))
     (import "libimg" (instance $libzip))
   ))
+)
+```
 
-  (func $main
-    ...
+## `app`
+
+Finally, we can create the `app` component by composing the `zipper` and `imgmgk`
+components. Let's say we want to bundle all the dependencies to create a single
+file with no external dependencies; a bundler could produce the following:
+```wasm
+(adapter_module $App
+  (module $Libc   ... copied inline)
+  (module $Libzip ... copied inline)
+  (module $Libimg ... copied inline)
+  (module $Zipper ... copied inline)
+  (module $Imgmgk ... copied inline)
+  (module $Core
+    ... whatever app does
   )
+
+  (instance $zipper (instantiate $Zipper
+    (import "libc" (module $Libc))
+    (import "libzip" (module $Libzip))
+  ))
+  (instance $imgmgk (instantiate $Imgmgk
+    (import "libc" (module $Libc))
+    (import "libzip" (module $Libzip))
+    (import "libimg" (module $Libimg))
+  ))
+  (instance $core (instantiate $Core
+    (import "zipper" (instance $zipper))
+    (import "imgmgk" (instance $imgmgk))
+  ))
 )
 ```
 
-## Whole Application
+Note that, while the `$Libc` and `$Libzip` modules are shared between `$Zipper`
+and `$Imgmgk`, `$zipper` and `$imgmk` each get private instances of `$Libc` and
+`$Libzip` and thus get private, encapsulated linear memories.
 
-To illustrate sharing, let's say we now bundle together both `zipper` and
-`imgmgk` as part of a single deployment artifact. One option the bundler has is
-to simply embed all dependencies into a containing bundle module:
-
+Alternatively, a Web-targeted bundler could choose to take advantage of HTTP
+caching by using relative URLs that are fetched and cached by the browser via
+[ESM-integration]:
 ```wasm
-(module $DEPLOYMENT-BUNDLE
-  (module $LIBC ...copied inline)
-  (module $LIBZIP ...copied inline)
-  (module $LIBIMG ...copied inline)
-  (module $ZIPPER ...copied inline)
-  (module $IMGMGK ...copied inline)
-
-  (instance (export "zipper") (instantiate $ZIPPER
-    (import "libc" (module $LIBC))
-    (import "libzip" (module $LIBZIP))
-  ))
-  (instance (export "imgmgk") (instantiate $IMGMGK
-    (import "libc" (module $LIBC))
-    (import "libzip" (module $LIBZIP))
-    (import "libimg" (module $LIBIMG))
-  ))
+(adapter_module $App
+  (import "./libc.wasm" (module $Libc ...))
+  (import "./libzip.wasm" (module $Libzip ...))
+  (import "./libimg.wasm" (module $Libimg ...))
+  (import "./zipper.wasm" (module $Zipper ...))
+  (import "./imgmgk.wasm" (module $Imgmgk ...))
+  ...
 )
 ```
+Importantly, by propagating dependencies as module imports, bundler tools and
+developers have a range of options at build time.
 
-Note that, while the `libc` and `libzip` modules are shared, both `$zipper` and
-`$imgmk` get their own private, encapsulated instances of `libc` and `libzip`.
-
-Alternatively, a Web-targeted bundler (like webpack) could choose to take
-advantage of HTTP caching by using relative URLs that are fetched by the browser
-via [ESM-integration]:
-
-```wasm
-(module $WEB-BUNDLE
-  (import "./libc.wasm" (module $LIBC ...))
-  (import "./libzip.wasm" (module $LIBZIP ...))
-  (import "./libimg.wasm" (module $LIBIMG ...))
-  (import "./zipper.wasm" (module $ZIPPER ...))
-  (import "./imgmgk.wasm" (module $IMGMGK ...))
-
-  (instance (export "zipper") (instantiate $ZIPPER
-    (import "libc" (module $LIBC))
-    (import "libzip" (module $LIBZIP))
-  ))
-  (instance (export "imgmgk") (instantiate $IMGMGK
-    (import "libc" (module $LIBC))
-    (import "libzip" (module $LIBZIP))
-    (import "libimg" (module $LIBIMG))
-  ))
-)
-```
-or some hybrid configuration which nests some modules and module-imports others
-in order to balance minimizing requests and maximizing cache hits. Bundlers for
-other hosts may similarly exercise host-specific mechanisms for optimizing code
-sharing.
-
-Importantly, by propagating dependencies as module imports, where module sharing
-affects only performance characteristics, not behavior or correctness (due to
-explicit, private instantiation), bundler tools and developers have a range of
-options at build time.
 
 ## Versioning
 
@@ -338,42 +294,41 @@ void* LIBC(malloc)(size_t n);
 void* LIBZIP(zip)(void* in, size_t in_size, size_t* out_size);
 ```
 
-When `zipper.c` is compiled, it will include these versions in its imports:
-
+When `zipper.c` is first compiled, it will include these versions in its imports:
 ```wasm
-(module $ZIPPER
-  (type $Libc (instance
+(adapter_module $Zipper
+  (type $LibcInstance (instance
     (memory (export "memory") 1)
     (func (export "malloc") (param i32) (result i32))
   ))
 
-  (import "libc-1.0.0" (module $LIBC
-    (export (type outer $ZIPPER $Libc))
+  (import "libc-1.0.0" (module $Libc
+    (export $LibcInstance)
   ))
-  (import "libzip-3.4.5" (module $LIBZIP
-    (import "libc-1.0.0" (instance (type outer $ZIPPER $Libc)))
+  (import "libzip-3.4.5" (module $Libzip
+    (import "libc-1.0.0" (instance $LibcInstance))
     (export "zip" (func (param i32 i32 i32) (result i32)))
   ))
 
-  (instance $libc (instantiate $LIBC))
-  (instance $libzip (instantiate $LIBZIP (import "libc-1.0.0" (instance $libc))))
+  (instance $libc (instantiate $Libc))
+  (instance $libzip (instantiate $Libzip (import "libc-1.0.0" (instance $libc))))
   ...
 )
 ```
 
 Now let's say `libc` finally adds `free` in new minor version 1.1.0. Let's also
 say `zipper` is recompiled before `libzip`, so that `libzip` is still importing
-`libc-1.0.0`, without `free`. This will produce a new `$ZIPPER` module which
+`libc-1.0.0`, without `free`. This will produce a new `$Zipper` module which
 mentions two different version numbers and instance types of `libc`:
 
 ```wasm
-(module $ZIPPER
-  (import "libc-1.1.0" (module $LIBC
+(adapter_module $Zipper
+  (import "libc-1.1.0" (module $Libc
     (memory (export "memory") 1)
     (func (export "malloc") (param i32) (result i32))
     (func (export "free") (param i32))
   ))
-  (import "libzip-3.4.5" (module $LIBZIP
+  (import "libzip-3.4.5" (module $Libzip
     (import "libc-1.0.0" (instance
       (memory (export "memory") 1)
       (func (export "malloc") (param i32) (result i32))
@@ -381,44 +336,32 @@ mentions two different version numbers and instance types of `libc`:
     (export "zip" (func (param i32 i32 i32) (result i32)))
   ))
 
-  (instance $libc (instantiate $LIBC))
-  (instance $libzip (instantiate $LIBZIP (import "libc-1.0.0" (instance $libc))))
+  (instance $libc (instantiate $Libc))
+  (instance $libzip (instantiate $Libzip (import "libc-1.0.0" (instance $libc))))
   ...
 )
 ```
-
 As you might hope, this module still validates without recompiling `libzip`
-because `instantiate` performs a subtype check which ignores the import string
-`"libc-1.0.0"` (because import operands are supplied positionally) and the
-`libc-1.1.0` instance type is indeed a subtype of the `libc-1.0.0` instance
-type.
+because `instantiate` performs a subtype check between the supplied
+`libc-1.1.0` module and the expected `libc-1.0.0` module type, and subtyping
+allows superfluous exports to be ignored.
 
 Now let's say there is a major `libc` version change and the instance type does
 change incompatibly. If `libzip` is compiled with an older major version than
-`zipper`, then the `instance.instantiation` validation check will fail and it
+`zipper`, then the `instantiate` validation check will fail and it
 will be necessary to either upgrade `libzip` to the newer `libc` version
-(creating a new major version of `libzip` in the process!) or downgrade the
-compilation of `zipper` to match `libzip`.
+(creating a new major version of `libzip` in the process) or downgrade the
+compilation of `zipper` to match `libzip`. When it comes to compiling
+(shared-everything) programs with multiple libraries, there is no free lunch:
+there has to be a single version of `libc` shared by all other libraries.
 
-Overall, when it comes to compiling (shared-everything) programs with multiple
-libraries, there is no free lunch: there has to be sufficient agreement on the
-single version of `libc` and every other shared library.
+The situation is different, however, when bundling distinct *components*, as we
+saw with `$App` above. In this case, since there is no shared memory, each
+program can have its own major version of `libc`. In the case of minor/patch
+version changes, the bundler can implicitly upgrade programs with older
+versions to match programs with newer versions (to share more code/memory) or
+not.
 
-The situation is different, however, when bundling distinct *programs*, as we
-saw with `$DEPLOYMENT-BUNDLE` above. In this case, since there is no sharing
-of memory, each program can have its own major version of `libc`. In the case of
-minor/patch version changes, the bundler can implicitly upgrade programs with
-older versions to match programs with newer versions (to share more code/memory)
-or not.
-
-Ultimately, the above versioning scheme may be too simplistic when many
-libraries and programs are used within a single application. Instead of simply
-embedding and propagating version numbers, semver *range patterns* may need to
-be specified for each dependency to provide developers finer-grained control
-over how the final version is chosen. Any such scheme would need to be tailored
-to a higher-level layer of tooling and should be able to built on the basic
-primitives of the Module Linking proposal, similar to the simplistic scheme
-shown above.
 
 ## Cyclic Dependencies
 
@@ -429,53 +372,61 @@ If cyclic dependencies are necessary, such cycles can be broken by:
 * converting calls along "back edges" into indirect calls (`call_indirect`) of
   an import const global `i32` index.
 
-For example, a cycle between modules `a` and `b` could be broken by arbitrarily
-saying that `b` gets to directly import `a` and then routing `a`'s imports
-through the global `funcref` table via `call_indirect`. This is achieved by
-having `b` import `a` as a *module* and then, when `b` instantiates `a`, `b`
-supplies mutable `i32` globals containing the index of each function `a` wants
-to import of `b`'s. For example:
+For example, a cycle between modules `$A` and `$B` could be broken by arbitrarily
+saying that `$B` gets to directly import `$A` and then routing `$A`'s imports
+through a shared mutable `funcref` table via `call_indirect`:
 ```wat
 (module $A
-  (type $Libc (instance ...))
-  (import "libc" (instance (type $Libc)))
-  (import "bar-index" (global $bar-index mut i32))
+  ;; A imports B.bar indirectly via table+index
+  (import "linkage" "table" (table funcref))
+  (import "linkage" "bar-index" (global $bar-index mut i32))
+
   (type $FooType (func))
-  (func (export "foo")
+  (func $some_use
     (call_indirect $FooType (global.get $bar-index))
+  )
+
+  ;; A exports A.foo directly to B
+  (func (export "foo")
+    ...
   )
 )
 ```
 ```wat
 (module $B
-  (type $Libc (instance ...))
-  (import "libc" (module $LIBC (export (type outer $B $Libc))))
-  (instance $libc (instantiate $LIBC))
+  ;; B directly imports A.foo
+  (import "a" "foo" (func $a_foo))  ;; B gets to directly import A
 
-  (global $bar-index mut i32)
-
-  (import "a" (module $A
-    (import "libc" (instance (type outer $B $Libc)))
-    (import "bar-index" (global mut i32))
-    (export "foo" (func $foo))
-  ))
-  (instance $a (instantiate $A
-    (import "libc" (instance $libc)
-    (import "bar-index" (global $bar-index))
-  ))
-
-  ;; indirectly export bar to a:
+  ;; B indirectly exports B.bar to A
   (func $bar ...)
-  (elem (i32.const 0) $bar)
+  (import "linkage" "table" (table $ftbl funcref))
+  (import "linkage" "bar-index" (global $bar-index mut i32))
+  (elem (table $ftbl) (offset (i32.const 0)) $bar)
   (func $start (global.set $bar-index (i32.const 0)))
   (start $start)
-
-  (func $run (export "run")
-    call (func $a "foo")
-  )
 )
 ```
-Here, calling `$run` will successfully call from `b` into `a` back into `b`.
+Lastly, a toolchain can link these together into a whole program by emitting
+a wrapper adapter module that supplies both `$A` and `$B` with a shared
+function table and `bar-index` mutable global.
+```wat
+(adapter_module $Program
+  (import "./A.wasm" (module $A ...))
+  (import "./B.wasm" (module $B ...))
+  (module $Linkage
+    (global (export "bar-index") mut i32)
+    (table (export "table") funcref 1)
+  )
+  (instance $linkage (instantiate $Linkage))
+  (instance $a (instantiate $A
+    (import "linkage" (instance $linkage))
+  ))
+  (instance $b (instantiate $B
+    (import "a" (instance $a))
+    (import "linkage" (instance $linkage))
+  ))
+)
+```
 
 
 ## Function Pointer Identity
