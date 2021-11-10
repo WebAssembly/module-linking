@@ -824,19 +824,17 @@ to recursively extract fields.
 Lastly, for imports of modules, ESM-integration would need the ESM loader to
 provide a fundamentally new way to parse/decode a module without *also*
 instantiating that module. Since this functionality is also useful for JS,
-there is already a proposal to add this to ESM called
-[Evaluator Attributes](https://github.com/lucacasonato/proposal-evaluator-attributes).
+there is already a proposal to add this to ESM called [Import Reflection].
 With this proposal, a module import:
 ```wasm
 (adapter_module
-  (import "foo" (module $M))
+  (import "./foo.wasm" (module $Foo))
 )
 ```
-could be handled by ESM-integration as if loaded by:
+could be handled by ESM-integration as-if loaded by:
 ```js
-import M from 'foo' as 'module';
+import Foo from "./foo.wasm" as "wasm-module";
 ```
-according to the Evaluator Attributes proposal.
 
 
 
@@ -848,6 +846,7 @@ according to the Evaluator Attributes proposal.
 [Interface Types]: https://github.com/WebAssembly/interface-types
 
 [ESM-integration]: https://github.com/WebAssembly/esm-integration
+[Import Reflection]: https://github.com/tc39-transfer/proposal-import-reflection
 
 [Core Concepts]: https://webassembly.github.io/spec/core/intro/overview.html#concepts
 [`typeuse`]: https://webassembly.github.io/spec/core/text/modules.html#type-uses
