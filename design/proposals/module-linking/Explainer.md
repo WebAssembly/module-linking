@@ -580,9 +580,9 @@ WebAssembly's [`typeuse`] sugar.
 
 For instance-export aliases, the inline sugar has the form:
 ```
-(kind <instanceidx> <name>*)
+(kind <instanceidx> <name>+)
 ```
-where the `<name>*` is a sequence of exports projected from the `<instanceidx>`.
+where the `<name>+` is a sequence of exports projected from the `<instanceidx>`.
 For example, the following snippet using inline alias sugar:
 ```wasm
 (instance $j (instantiate $J (import "f" (func $i "f"))))
@@ -592,7 +592,7 @@ is equivalent to the expanded explicit aliases:
 ```wasm
 (alias $i "f" (func $f_alias))
 (instance $j (instantiate $J (import "f" (func $f_alias))))
-(alias $j "g" (func $g_alias))
+(alias $j "g" (instance $g_alias))
 (alias $g_alias "h" (func $h_alias))
 (export "x" (func $h_alias))
 ```
