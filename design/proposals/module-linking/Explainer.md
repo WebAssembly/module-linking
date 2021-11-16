@@ -833,6 +833,10 @@ WebAssembly.instantiateStreaming(fetch('./a.wasm'), {
 where `instantiateStreaming` checks that the module created from `code` exports
 a function `six` (and *may* import a function `five`).
 
+Lastly, considering the new exportable types, a module export would naturally
+produce a `WebAssembly.Module` object. For an instance export, the JavaScript
+correspondence already established by [ESM-integration] is a [Namespace Object].
+
 
 ### ESM-integration
 
@@ -841,34 +845,60 @@ binaries in all the same places where core module binaries can be loaded today,
 branching on the `layer` field in the binary format to determine the kind of
 module to decode.
 
-As with the JS API, the main question is how ESM-integration should deal with
-single-level imports, instance imports and module imports. Going through these
-one at a time:
+As with the JS API, the main question for ESM-integration is how to deal with
+all imports having a single string as well as the new instance and module
+import/export types. Going through these:
 
-For single-level imports of non-instance type, the natural analogue in an ESM
-context is the [default export]. Thus, a single-level non-instance import would
-receive whatever the ESM loader says the default value would be.
-
-For imports of instance type, the ESM loader would treat the exports of the
-instance type as the imported field names. In the normal two-level
-import-an-instance case, this corresponds exactly to existing ESM-integration
-behavior. However, for more-deeply nested instances, the ESM loader would need
-to recursively extract fields.
-
-Lastly, for imports of modules, ESM-integration would need the ESM loader to
-provide a fundamentally new way to parse/decode a module without *also*
-instantiating that module. Since this functionality is also useful for JS,
-there is already a proposal to add this to ESM called [Import Reflection].
-With this proposal, a module import:
-```wasm
-(adapter module
-  (import "./foo.wasm" (module $Foo))
-)
-```
-could be handled by ESM-integration as-if loaded by:
+For adapter module imports of module type, we need a fundamentally new way to
+request that the ESM loader parse or decode a module without *also*
+instantiating that module. Recognizing this same need from JavaScript, there is
+already a TC39 proposal called [Import Reflection] that adds the ability to
+write, in JavaScript:
 ```js
 import Foo from "./foo.wasm" as "wasm-module";
+assert(Foo instanceof WebAssembly.Module);
 ```
+With this extension to JavaScript and the ESM loader, an adapter module import
+of module type can be treated like an `as "wasm-module"` import by
+ESM-integration.
+
+In all other cases, the (single) string imported by an adapter module import is
+first resolved to a [Module Record] using the same process as resolving the
+[Module Specifier] of a JavaScript `import`. After this, the handling of the
+imported Module Record is determined by the import type:
+
+For imports of instance type, the ESM loader would treat the exports of the
+instance type as if they were the [Named Imports] of a JavaScript `import`.
+Thus, single-level imports of instance type mirror the behavior of core
+two-level imports with existing ESM-integration. Since the exports of an
+instance type can themselves be instance types, this process must be performed
+recursively.
+
+For imports of type `(global externref)` (i.e., an immutable core WebAssembly
+global storing a value of type `externref`), the imported Module Record is
+first converted to a [Namespace Object] via [`GetModuleNamespace()`] and then
+converted to a `(global externref)` as a normal JavaScript value. This allows
+the importing adapter module to dynamically access the fields of the
+Namespace Object by calling other imported functions (such as `Object.get()`).
+In the future, other compatible types (e.g., `handle` Interface Types) could be
+included in this case.
+
+Otherwise, if the import cannot accept a Namespace Object (and would error
+otherwise), the import is treated like a JavaScript [Imported Default Binding]
+and the Module Record is converted to its default value. This allows, for
+example, a single level import of a function:
+```wasm
+(adapter module
+  (import "./foo.js" (func (result i32)))
+)
+```
+to be satisfied by a JavaScript module via ESM-integration:
+```js
+// foo.js
+export default () => 42;
+```
+Lastly, for exports, ESM-integration would produce the same JavaScript
+objects for exports as described above for the JS API.
 
 
 
@@ -880,7 +910,13 @@ import Foo from "./foo.wasm" as "wasm-module";
 [Interface Types]: https://github.com/WebAssembly/interface-types
 
 [ESM-integration]: https://github.com/WebAssembly/esm-integration
+[Namespace Object]: https://tc39.es/ecma262/multipage/reflection.html#sec-module-namespace-objects
 [Import Reflection]: https://github.com/tc39-transfer/proposal-import-reflection
+[Module Record]: https://tc39.es/ecma262/#sec-abstract-module-records
+[Module Specifier]: https://tc39.es/ecma262/multipage/ecmascript-language-scripts-and-modules.html#prod-ModuleSpecifier
+[Named Imports]: https://tc39.es/ecma262/multipage/ecmascript-language-scripts-and-modules.html#prod-NamedImports
+[`GetModuleNamespace()`]: https://tc39.es/ecma262/multipage/ecmascript-language-scripts-and-modules.html#sec-getmodulenamespace
+[Imported Default Binding]: https://tc39.es/ecma262/multipage/ecmascript-language-scripts-and-modules.html#prod-ImportedDefaultBinding
 
 [Core Concepts]: https://webassembly.github.io/spec/core/intro/overview.html#concepts
 [`typeuse`]: https://webassembly.github.io/spec/core/text/modules.html#type-uses
@@ -910,6 +946,5 @@ import Foo from "./foo.wasm" as "wasm-module";
 
 [Figma plugins]: https://www.figma.com/blog/an-update-on-plugin-security/
 [Attenuate]: http://cap-lore.com/CapTheory/Patterns/Attenuation.html
-[Default Export]: https://developer.mozilla.org/en-US/docs/web/javascript/reference/statements/export#Description
 
 [Issue-30]: https://github.com/WebAssembly/module-linking/issues/30
