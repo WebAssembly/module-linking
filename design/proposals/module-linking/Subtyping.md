@@ -49,13 +49,13 @@ With some examples:
 modules are trickier than instances, so first this will describe some tweaks to
 imports in the current proposal.  It's important to note [that all two-level
 imports are now equivalent to instance
-imports](./Explainer.md#instance-imports-and-aliases), meaning that all
+imports](./Explainer.md#import-definitions), meaning that all
 imports are a name and a type. The proposed method of elaboration is to group
 all two-level imports with the same module name next to one another, and then
 flatten each group of two-level imports into one one-level import of an
 instance with appropriately named and typed exports.
 
-For example this:
+For example this core module:
 
 ```wasm
 (module $A
@@ -65,7 +65,7 @@ For example this:
 )
 ```
 
-becomes this:
+is assigned this type:
 
 ```wasm
 (module $A
@@ -79,7 +79,7 @@ becomes this:
 )
 ```
 
-A caveat with this, however, is that this module
+However, this module:
 
 ```wasm
 (module $A
@@ -88,7 +88,7 @@ A caveat with this, however, is that this module
 )
 ```
 
-cannot be recast as:
+cannot be assigned this type:
 
 ```wasm
 (module
@@ -99,14 +99,11 @@ cannot be recast as:
 )
 ```
 
-because exports in instances must have unique names. As a result **this proposal
-proposes a breaking change** to forbid duplicate import strings between two
-imports (more discussion about this breaking change is available on
-[#7](https://github.com/WebAssembly/module-linking/issues/7) and [below as
-well](#breaking-change)). This would make module `$A` an invalid module.
+because duplicate exports are not allowed in module types. Thus, the Module
+Linking does not allow nesting `$A` nor importing `$A` via a module-typed
+import.
 
-Note that this breaking change would also mean that these modules are all
-invalid:
+Similarly, none of the following core modules can be assigned module types:
 
 ```wasm
 (module
@@ -127,9 +124,9 @@ invalid:
 
 ## Module Subtyping
 
-With the import elaboration above it means that imports are actually the same
-thing as exports, a map from name to a type. Module `{imports i1, exports e1}`
-is then a subtype of `{imports i2, exports e2}` if this property holds:
+With the single-level import interpretation above, imports are symmetric to
+exports: they're a map from name to a type. Module `{imports i1, exports e1}`
+is thus a subtype of `{imports i2, exports e2}` if this property holds:
 
 ```
           i2 ≤ i1              e1 ≤ e2
@@ -138,7 +135,7 @@ is then a subtype of `{imports i2, exports e2}` if this property holds:
 ```
 
 Handling of exports is the same as instances, which basically means that it's ok
-if `m1` exports more than what `m2` expects. The subtelty with imports is that
+if `m1` exports more than what `m2` expects. The subtlety with imports is that
 the order of checking is reversed, it's ok to import less than what's
 expected.
 
@@ -177,22 +174,3 @@ desired way.
 WebAssembly *embeddings* may however choose to flatten imports of instances
 into lists of imports of the instances' fields, preserving backwards
 compatibility and avoiding the need to create intermediate instances.
-
-## Breaking change?!
-
-This entire interpretation of imports relies on the aforementioned breaking
-change, which is to disallow two import directives with the same names. The
-rationale for this breaking change is:
-
-* It's expected that in practice different import directives with the same name
-  is exceedingly rare. So far the only confirmed cases are in test harnesses
-  where you might import `console.log` with two signatures for example. It's
-  hoped we can [collect
-  data](https://bugzilla.mozilla.org/show_bug.cgi?id=1647791) to back up this
-  claim.
-
-* Another hope is that the spec can change to disallow duplicate imports, but
-  enginess with backwards-compatibility guarantees could deviate from the spec
-  in this regard and allow duplicate import strings in older modules. This way
-  engines that can could follow the spec exactly, and if necessary engines
-  wouldn't have to break existing content.

@@ -1,48 +1,48 @@
-This explainer introduces the Module Linking proposal, which allows WebAssembly
-modules to define, import and export modules and instances.
+# Module Linking Explainer
+
+This explainer introduces the Module Linking proposal, as the first proposal
+of the [Component Model] specification. Module Linking enables multiple Core
+WebAssembly modules to be linked together without relying on imported host
+functionality.
 
 1. [Problem](#problem)
 2. [Use Cases](#use-cases)
 3. [Additional Requirements](#additional-requirements)
-4. [Proposed Additions](#proposed-additions)
-   1. [Single-level Imports](#single-level-imports)
-   2. [Module and Instance Types](#module-and-instance-types)
-   3. [Instance Imports and Aliases](#instance-imports-and-aliases)
-   4. [Module Imports and Nested Instances](#module-imports-and-nested-instances)
-   5. [Nested Modules](#nested-modules)
-   6. [Module and Instance Exports](#module-and-instance-exports)
-   7. [Binary Format Considerations](#binary-format-considerations)
-   8. [Summary](#summary)
-5. [Use Cases Revisited](#use-cases-revisited)
-6. [Additional Requirements Revisited](#additional-requirements-revisited)
-7. [FAQ](#faq)
+4. [Walkthrough](#walkthrough)
+   1. [Module Definitions](#module-definitions)
+   2. [Instance Definitions](#instance-definitions)
+   3. [Import Definitions](#import-definitions)
+   4. [Export Definitions](#export-definitions)
+   5. [Alias Definitions](#alias-definitions)
+   6. [Type Definitions](#type-definitions)
+5. [Binary Format Considerations](#binary-format-considerations)
+6. [Web Platform Integration](#web-platform-integration)
 
 
 ## Problem
 
 Currently, WebAssembly modules have no way to define how they are to be
-instantiated and linked together without relying on host-specific conventions.
-Consequently, the only portable way to link modules today is to [statically link]
-them, in a language/toolchain-specific manner which prevents modular code
-reuse, leads to code duplication in production and keeps languages separate.
-We would like to enable a portable, host- and language-independent ecosystem of
-composable WebAssembly modules.
+instantiated and linked together without relying on host-specific functionality
+such as the [JS API]. Consequently, the only portable way to link modules today
+is to [statically link] them using toolchain-specific conventions. This leads
+to code duplication in production and inhibits cross-language reuse. A number
+of [Component Model use cases] require support for more dynamic forms of
+linking that enable the sharing of separately-compiled modules written in
+different languages.
 
 
 ## Use Cases
 
 To motivate the proposed solution, we consider 2 use cases whose requirements
-aren't satisfied by simpler solutions. After the proposal is introduced,
-the use cases are [revisited](#use-cases-revisited) with worked-out examples
-using the proposal.
+aren't satisfied by simpler solutions.
 
 
 ### Link-time Virtualization
 
-When using a first-class instantiation API like the JS API's [`instantiate`],
-the imports of the module-to-be-instantiated appear as explicit arguments
-supplied by the caller. This has several useful properties that should be
-preserved by a pure-wasm linking solution:
+When using a first-class instantiation API like the JS API's
+[`WebAssembly.instantiate()`], the imports of the module-to-be-instantiated
+appear as explicit arguments supplied by the caller. This has several useful
+properties that should be preserved by a pure-wasm linking solution:
 
 First, it enables applications to easily enforce the [Principle of Least Authority],
 passing modules only the imports necessary to do their job. There are currently
@@ -83,775 +83,828 @@ virtualization is thus a fairly general mechanism to enable multiple styles of
 virtualization.
 
 As an example, given the static dependency graph on the left (where all 3
-modules import `wasi_file`), it should be possible for `parent.wasm` to
-generate the linked instance graph on the right:
+modules import a host-supplied instance of `wasi:filesystem`), it should be
+possible for `parent.wasm` to generate the linked instance graph on the right,
+where the `parent` instance has created a `virtualized` instance and supplied
+it to a new `child` instance as an implementation of the `wasi:filesystem`
+interface:
 
 <p align="center"><img src="./link-time-virtualization.svg" width="500"></p>
 
-Here, `parent.wasm` is creating a virtualized version of its imported `wasi_file`
-and then passing this on to the child. Thus, `"wasi_file"` doesn't name a single
-global implementation; rather it names an *interface* which can be variously
-implemented. Indeed, even `parent.wasm` doesn't know whether it received the
-host's native implementation of `wasi_file` or some other implementation
-supplied by another module that imports `parent.wasm` (hence the `?` in the
-diagram). As mentioned above, there may not even *be* a "native" implementation
-of `wasi_file`. Critically, though, it is `parent.wasm` that gets to determine
-which `wasi_file` instance `child.wasm` gets to import and `child.wasm` has
-no way to circumvent this.
+Importantly, the `child` instance has no access to the `wasi:filesystem`
+instance imported by the `parent` instance.
+
+A worked example of this use case is given [here](Example-LinkTimeVirtualization.md).
 
 
-### Shared-Everything Dynamic Linking
+### Shared-Everything C-family Dynamic Linking
 
 "Dynamic Linking" refers to keeping modules separate until load-time so that
-common modules can be shared by multiple programs. This avoids the need to
-[statically link]  (i.e., duplicate) the shared modules into each program.
-"Shared-Everything" linking refers to the case where the linked modules share
-memory and tables and is distinguished from the [Shared-Nothing Linking] case
-enabled by [Interface Types]. Shared-everything dynamic linking in wasm
-effectively emulates [native dynamic linking], which has the same goals.
+common modules can be shared by multiple independent clients. This avoids the
+need to [statically link]  (thereby duplicating) the shared modules into each
+client. "Shared-Everything" linking refers to the case where the linked modules
+share memory and tables, effectively emulating [native dynamic linking].
+Lastly, "C-family" refers to the family of languages that can interoperate
+through a traditional C ABI (e.g., C, C++, FORTRAN and Rust).
 
-Modules are dynamically linked by creating module [instances][Semantic Phases]
-that can call each others' functions, either directly through calls to function
-imports or indirectly through `call_indirect`. One challenge unique to
-shared-everything dynamic linking is controlling exactly which module instances
-share memory. A design where sharing code equates to sharing memory may seem
-natural, but this sacrifices isolation. Lack of isolation can lead to difficult
-bugs that only appear when independent programs are composed. Lack of isolation
-also enables new kinds of supply-chain attacks. Ideally, to maximize isolation,
-each "program" (for some definition of "program" defined by the toolchain)
-should be able to generate a fresh memory each time the program is run,
-regardless of which of its modules are shared with other programs.
+Two modules are dynamically linked by having one module import the functions,
+memories, tables and globals exported by another module. One challenge for
+dynamic linking is controlling which module instances share a linear memory and
+which have separate linear memories. In the [shared-nothing] context of the
+Component Model, we want all the core modules used by a single component to
+share a single linear memory while we want each distinct component instance to
+get a distinct linear memory.
 
 For example, it should be possible to take the static dependency graph of the
-application on the left, which contains two programs (`zipper` and `imgmgk`) and
-three shared modules (`libc`, `libzip` and `libimg`), and create the
-dynamically-linked instance graph on the right at application runtime.
+application on the left, which is built from two components (`zipper` and
+`imgmgk`) and three shared core modules (`libc`, `libzip` and `libimg`), and
+create the dynamically-linked instance graph on the right at load-time:
 
 <p align="center"><img src="./shared-everything-dynamic-linking.svg" width="600"></p>
 
-Moreover, the linking mechanism must allow the developers of each individual
-module, program and application to independently deal with the inevitable
-version changes (major and minor) of their dependencies.
+Here, `libc` defines and exports a linear memory that is imported by the other
+core instances contained within the same component instance. The whole
+application uses the `libc` module three times, sharing *code*, but with each
+usage getting a distinct instance and thus not sharing *data*. Module systems
+where sharing a module forces sharing a module instance are common in existing
+programming languages but break shared-nothing isolation and this use case.
+
+A worked example of this use case is given [here](Example-SharedEverythingDynamicLinking.md).
 
 
 ## Additional Requirements
 
-In addition to being able to satisfy the above use cases, there are two more
-general requirements to be considered:
+Additionally, the following high-level Component Model [design choices] are
+relevant:
 
 * **No GC dependency**: Since we wish to use this feature to implement dynamic
   linking of C/C++/Rust programs, and since C/C++/Rust programs aim to run on
   hosts that don't contain a GC, this proposal should not require a general
-  garbage collection algorithm to implement; reference-counting should suffice.
+  garbage collection algorithm to implement.
 
-* **Enable AOT compilation**: Today, using static linking of libraries, wasm
+* **No JIT dependency**: Today, using static linking of libraries, wasm
   hosts are able to use a simple, Ahead-of-Time compilation model to generate
   high-performance machine code images that can be immediately instantiated and
   run. Switching to dynamic linking should not hurt hosts' ability to perform
   the same degree of optimization.
 
-This proposal is checked against these requirements [below](#additional-requirements-revisited).
+
+## Walkthrough
+
+This proposal bootstraps the Component Model by defining a new "adapter module"
+concept. Adapter modules *contain* Core WebAssembly ("core") modules as well as
+several new definition kinds that address the use cases listed above. Just like
+core modules, adapter modules have abstract syntax with both text- and
+binary-format representations. Similarly, adapter modules are meant to be
+distributable binaries that can be directly loaded and executed by a supporting
+runtime.
+
+(As a spoiler: adapter modules are extended by the [Interface Types] proposal
+with the additional features necessary to achieve the [shared-nothing] goals of
+the Component Model. The Interface Types proposal also defines a *restricted*
+form of adapter modules called **components** which are adapter modules whose
+public interfaces (imports and exports) *only* use interface types, thereby
+ensuring shared-nothing isolation of their contained shared mutable state.
+Ultimately, both definitions&mdash;adapter modules and components&mdash;are
+necessary for different scenarios.)
+
+This walkthrough section introduces adapter modules via their text format. The
+[next section](#binary-format-considerations) discusses the high-level
+considerations for the binary format of adapter modules while a
+[sibling document](Binary.md) provides a detailed binary format description.
 
 
-## Proposed Additions
+### Module Definitions
 
-The central idea of this proposal is to allow a client module to import its
-dependencies as *modules*. In contrast, today, modules can only import the
-exports of *already-created instances*. Importing dependencies as modules allows
-clients to control how the dependencies are instantiated (supplying the imports)
-and linked (exposing the exports) which in turn enables the advanced use cases
-mentioned above. In addition to the central addition of module imports, several
-other complementary additions are proposed to finish the picture. The complete
-list is summarized [at the end](#summary).
+Like core modules, adapter modules are composed of sequences of definitions.
+This proposal includes 6 definition kinds:
+```
+adapter-module ::= (adapter module <id>? <definition>* )
+definition     ::= <module>
+                 | <instance>
+                 | <import>
+                 | <export>
+                 | <alias>
+                 | <type>
+module         ::= <adapter-module>
+                 | <core:module>
+```
+From this grammar fragment we can see that the `adapter-module` production is
+recursive and thus adapter modules can contain other adapter modules. The
+`core:module` production refers to the Core WebAssembly's [`module`]
+parse rule. Together, this means that adapter modules can form trees with core
+modules appearing only at leaves.
 
-
-### Single-level Imports
-
-An additional form of import is added which has only one import string instead
-of the usual two:
+For example, the following adapter module contains one adapter module and two
+core modules:
 ```wasm
-(module
-  (import "a" "b" (func))  ;; legal today
-  (import "x" (func))      ;; illegal today, legalized with this proposal
-)
-```
-
-In general, this addition removes a long-standing source of awkwardness on the
-Web: when [ESM-integration] isn't used, the first ("module") name string is
-usually unnecessary leading tools to unnecessarily invent ad hoc module names
-like `env`.
-
-Single-level imports have a backwards-compatible interpretation on the Web. For
-the [JS API], the following JS snippet would instantiate the above module:
-```js
-const importObj = {
-  a: {
-    b: () => {}
-  }
-  x: () => {}
-};
-WebAssembly.instantiate(module, importObj);
-```
-For [ESM-integration], single-level imports could potentially map to the ESM
-[default export].
-
-
-### Module and Instance Types
-
-The wasm spec currently [classifies modules with a type][Module Validation],
-specifically a function type mapping imports to exports. However, to describe a
-full module interface, the names of imports and exports must be known as well.
-Thus, this proposal enriches the existing **module type** by adding names
-to imports and exports.
-
-Thus far, module types only appear as an internal detail of the wasm spec; they
-aren't explicitly represented in the text or binary format. This proposal
-additionally gives module types a text and binary format representation.
-
-The module type text format is derived from the existing module definition text
-format (extended with single-level imports) by simply dropping all internal
-details. This is symmetric to how function types are derived from function
-definitions by dropping function bodies. For example, this module:
-```wasm
-(module
-  (memory (import "a") 1 2)
-  (func (import "b") (param i32))
-  (table (export "c") 1 funcref)
-  (func $notImportedOrExported (result i64)
-    i64.const 0
-  )
-  (func (export "d") (result f32)
-    f32.const 0
-  )
-)
-```
-has a module type:
-```wasm
-(module
-  (memory (import "a") 1 2)
-  (func (import "b") (param i32))
-  (table (export "c") 1 funcref)
-  (func (export "d") (result f32))
-)
-```
-Just as with module definitions, the above module type is actually an
-[abbreviation] in the text format for:
-```wasm
-(module
-  (import "a" (memory 1 2))
-  (import "b" (func (param i32)))
-  (export "c" (table 1 funcref))
-  (export "d" (func (result f32)))
-)
-```
-
-Although module types list imports and exports in a particular order, module
-*subtyping* allows a supplied module definition's imports and exports to have a
-different order as long as all the fields are present. Moreover, module
-subtyping is covariant in exports and contravariant in imports (including
-allowing a subtype to have more exports and fewer imports than its supertype).
-These permissive subtyping rules provide modules additional flexibility to
-evolve without breaking existing clients. Since module types are checked at
-instantiation-time, this extra flexibility shouldn't affect runtime
-performance.
-
-In WebAssembly there is also the separate concept of a module *instance*,
-which is the result of [instantiating][Module Instantiation] a module with
-imports. An instance type is mostly just the module type with the imports removed
-(with the only future complication being [Type Imports] used in export
-signatures). For example, the above module, when instantiated, would have
-instance type:
-```wasm
-(instance
-  (export "c" (table 1 funcref))
-  (export "d" (func (result f32)))
-)
-```
-Like module types, the exports of an instance type are ordered, but instance
-subtyping allows arbitrary reordering and compatible extension.
-
-Just like function types, module and instance types can either be written
-inline or factored out into an explicit type definition that can be reused via
-`$identifier`. For example, an instance type can be defined:
-```wasm
-(type $WasiFile (instance
-  (export "read" (func (param i32 i32 i32) (result i32)))
-  (export "write" (func (param i32 i32 i32) (result i32)))
-))
-```
-and then reused later via `(type $WasiFile)`.
-
-In many examples shown below, type definitions are needed for *both* a module
-type and the instance type produced when that module type is instantiated. In
-such cases, to avoid duplicating all the exports, a new "zero-level export"
-`(export $InstanceType)` form is added which injects all the exports of
-`$InstanceType` into the containing module type. For example, here is the type
-of a module which implements the above-defined `$WasiFile` interface via Win32
-operations:
-```wasm
-(module
-  (import "Win32" "ReadFile" (func (param i32 i32 i32 i32) (result i32)))
-  (import "Win32" "WriteFile" (func (param i32 i32 i32 i32) (result i32)))
-  (export $WasiFile)
-)
-```
-
-Lastly, just as the current [text format conventions recommend `.wat`][WAT] as
-the extension of a file that contains a module definition, this proposal
-includes a new recommendation for text files containing a bare module or
-instance type be suffixed `.wit`. `.wit` files can be used as part of the
-toolchain ecosystem for describing a module's interface without including its
-definition. For example, this can be used to generate compatible source-language
-declarations. Like `.wat` files, `.wit` files are not consumed directly by the
-host.
-
-Module and Instance types can also be used to describe the types of imports:
-
-
-### Instance Imports and Aliases
-
-Just as a function, memory, table or global can be imported by specifying a
-function, memory, table or global type, instances can be imported by specifying
-an instance type:
-```wasm
-(module
-  (import "i" (instance $i
-    (export "f1" (func))
-    (export "f2" (func (param i32)))
-  ))
-)
-```
-This module imports an instance that exports two functions, `f1` and `f2`.
-
-Since instances have no observable identity (a [`moduleinst`] is just an
-immutable record containing the addresses of its fields in the store) there
-should be no semantic difference between the previous module and this next one:
-```wasm
-(module
-  (import "i" "f1" (func))
-  (import "i" "f2" (func (param i32)))
-)
-```
-
-To achieve this in a (binary and text) backwards-compatible way, multi-level
-imports are recast as syntactic sugar for single-level imports of instances.
-(In pathological cases of interleaving between two module strings, the
-text/binary rules would specify that the aggregate instance import would
-appear at the position of the first of its fields.) Thus, the above two modules
-both parse and decode to the same abstract syntax.
-
-From inside a module definition, the exports of an imported instance can be
-accessed by creating an *alias*:
-```wasm
-(module
-  (import "i" (instance $i
-    (export "f1" (func))
-    (export "f2" (func (param i32)))
-  ))
-  (alias $i "f1" (func $f))
-  (func (export "run")
-    call $f
-  )
-)
-```
-This `alias` definition adds the `f1` export of the import `$i` into the
-function index space of the module so that it may later be referenced via
-the identifier/index `$f` by instructions like `call`.
-
-[Similar to imports][func-import-abbrev], aliases can also be written in
-an inverted form that puts the definition kind first:
-```wasm
-(func $f (alias $i "f1"))  ;; ≡ (alias $i "f1" (func $f))
-```
-
-As syntactic sugar, aliases may be created implicitly via a new form of
-syntactic sugar:
-```wasm
-(module
-  (import "i" (instance $i
-    (export "f1" (func))
-    (export "f2" (func (param i32)))
-  ))
-  (func (export "run")
-    call (func $i "f1")
-  )
-)
-```
-The expression `(func $i "f1")` adds a new `alias` definition if an equivalent
-one doesn't exist. (This is symmetric to how a [`typeuse`] works for function
-types.) Thus the above two modules would produce the same abstract syntax and
-binary encoding. This new inline-alias form is allowed everywhere an index or
-identifier is allowed currently.
-
-Aliases are not restricted to functions: all exportable definitions can be
-aliased. One situation where an explicit `alias` definition may be required is
-for a default memory or table:
-```wasm
-(module
-  (import "libc" (instance $libc
-    (export "mem" (memory 1))
-    (export "tbl" (table 0 funcref))
-  ))
-  (alias $libc "mem" (memory))  ;; aliases "mem" at memory index 0 (= default)
-  (alias $libc "tbl" (table))   ;; aliases "tbl" at table index 0 (= default)
-  (func
-    ...
-    i32.load  ;; accesses the default memory, $libc.mem
-    ...
-    table.get ;; accesses the default table, $libc.tbl
-    ...
-  )
-)
-```
-
-The benefit of instance imports is that they allow potentially-large groups of
-fields to be passed around as a single unit, which can be useful when linking
-significant dependencies. Also, practically, instance imports allow the
-module-name strings to be factored out in the text and binary formats.
-
-### Module Imports and Nested Instances
-
-A module can similarly be imported by declaring the expected module type. Once
-a module is imported, it can be instantiated with an `instance` definition. For
-example, in this code:
-```wasm
-(module
-  (import "M" (module $M
-    (import "in" (func))
-    (export "out" (func $out))
-  ))
-  (import "f" (func $f))
-  (instance $i (instantiate $M (import "in" (func $f))))
-  (func (export "run")
-    call (func $i "out")
-  )
-)
-```
-the outer module imports a module `$M` and a function `$f` and then
-instantiates `$M`, passing `$f` for the import `in` and producing a fresh
-instance `$i`. `instance` definitions have the form:
-```
-instance-def  ::= (instance <id>? <instance-init>)
-instance-init ::= (instantiate <moduleidx> <import-arg>*)
-import-arg    ::= (import <name> <import-val>)
-import-val    ::= (func <funcidx>)
-                | (memory <memidx>)
-                | (table <tableidx>)
-                | (global <globalidx>)
-                | (instance <instanceidx>)
-                | (module <moduleidx>)
-```
-where `<instanceidx>` and `<moduleidx>` are indices into the new module
-and instance [index spaces] created by module/instance imports/definitions.
-Validation requires that every `<name>` imported by `<moduleidx>` is satisfied
-by an `<import-arg>` with a matching `<name>`. Validation also requires all
-`<import-arg>` `<name>`s to be unique. Symmetric to the module subtyping rules
-described above, superfluous `<name>`s are valid.
-
-In the future, new productions could be added to `<instance-init>` allowing
-alternatives to `instantiate` for creating instances, such as direct tupling
-of individual definitions into an instance, without an intermediate module.
-
-In general, the arguments of `instantiate` can refer to any preceding type,
-import, module, instance or alias definition. This includes all imports and
-the local definitions that precede the `instantiate` in module order. For
-example, the following module (with desugared aliases) is valid:
-```wasm
-(module
-  (import "a" (instance $a (export "f" (func))))
-  (import "b" (module $B (import "g" (func)) (export "h" (func))))
-  (alias $a "f" (func $a.f))
-  (instance $b1 (instantiate $B (import "g" (func $a.f))))
-  (alias $b1 "h" (func $b1.h))
-  (instance $b2 (instantiate $B (import "g" (func $b1.h))))
-)
-```
-Notably, `instantiate` cannot refer to any local function, memory, table or
-global definitions. The reason for this is that, when instantiating a module
-`M`, the nested instances of `M` are created before the [`moduleinst`] of `M`
-itself and, thus, local function, memory, table and global definitions do not
-exist when the nested instances are created. For example, the following module
-is not valid:
-```wasm
-(module
-  (import "A" (module $A (import "f" (func))))
-  (func $g ...)
-  (instance $a (instantiate $A (import "f" (func $g)))) ;; error, $g not visible to instantiate
-)
-```
-From the perspective of a WebAssembly [embedding], this proposal changes
-[`module_instantiate`]`(M)` from always creating a single `moduleinst` to
-instead creating a DAG of `moduleinst`s, with `M`'s `moduleinst` as the returned
-root.
-
-
-### Nested Modules
-
-Symmetric to nested instances, modules can contain *nested modules* via
-`module` definitions. Nested modules are injected into the same module index
-space as module imports and thus can be instantiated the same way. For example:
-```wasm
-(module
-  (module $CHILD
-    (func (export "hi")
-      ...
+(adapter module
+  (adapter module $A
+    (module $B
+      (func (export "one") (result i32) (i32.const 1))
     )
   )
-  (instance $child (instantiate $CHILD))
-  (func (export "run")
-    call (func $child "hi")
+  (module $C
+    (func (export "two") (result i32) (i32.const 2))
   )
 )
 ```
+Just like other definitions, adapter and core module definitions go into an
+[index space] called the *module index space* which can be referenced by other
+definitions (in the text format, via symbolic identifiers like `$A`, `$B` and
+`$C` above). Notably, adapter and core modules go into the *same* module index
+space since the users of the module index space don't distinguish between
+adapter and core modules; after definition, both kinds of modules simply have a
+*module type* against which uses are checked (more on module types below).
 
-Unlike most source-language nested functions/classes, nested modules have no
-special access to their parents' state. However, since modules and types are
-closed, stateless expressions which would otherwise be duplicated, sharing is
-allowed between nested and outer modules via a new kind of "outer" alias. To
-prevent cross-module cycles, outer aliases in a nested module can only refer to
-definitions in outer modules that precede it (in text, binary and abstract syntax
-order).
+Unlike core modules, the definitions inside an adapter module are inherently
+*ordered*: definitions can only reference preceding definitions so that adapter
+module definitions are acyclic by nature. This acyclicy reflects the acyclic
+nature of Core WebAssembly's [module instantiation], which adapter modules can
+perform (as described below).
 
-As an example, when an instance import is passed from a parent module to its
-child module, the child can use an outer alias to avoid duplicating the
-instance type:
+Lastly, the syntax and semantics of core modules are not modified by adapter
+modules; all interaction with core modules happens through imports and exports
+and thus, from the Core WebAssembly's point of view, the Component Model is
+just another [WebAssembly embedder][core concepts].
+
+
+### Instance Definitions
+
+Instance definitions are the central feature of the Module Linking proposal,
+allowing adapter modules to create and link module instances. Whenever an
+adapter module is instantiated, all of its contained instance definitions are
+executed, creating new module instances according to the contained
+`instance-expr` expressions. The syntax of instance definitions is:
+```
+instance      ::= (instance <id>? <instance-expr>)
+instance-expr ::= (instantiate <moduleidx> (import <name> <def-ref>)*)
+                | (export <name> <def-ref>)*
+def-ref       ::= (instance <instanceidx>)
+                | (module <moduleidx>)
+                | (func <funcidx>)
+                | (table <tableidx>)
+                | (memory <memidx>)
+                | (global <globalidx>)
+```
+As an example, the following `$Parent` adapter module creates a new `$Child`
+module instance every time `$Parent` is instantiated:
 ```wasm
-(module $PARENT
-  (type $FileOps (instance
-    ... many function exports
-  ))
-  (import "fileops" (instance $fileops (type $FileOps)))
-  (module $CHILD
-    (alias outer $PARENT $FileOps (type $FOps))
-    (import "fileops" (instance $fops (type $FOps)))
-    ...
+(adapter module $Parent
+  (module $Child
+    (memory 1)
   )
-  (instance $child (instantiate $CHILD (import "fileops" (instance $fileops))))
+  (instance $child (instantiate $Child))
   ...
 )
 ```
-The `outer` keyword in an `alias` definition indicates that the aliased
-definition is found by a pair of: the outer module and the desired definition
-within that outer module. This pair can be specified in the text format via
-two identifiers, as shown in this example. In the binary format, the pair is
-specified via [De Bruijn index]. Each module's identifier namespace is disjoint
-and thus it would be a parsing error in this example if `$CHILD` attempted to
-use `$FileOps` directly. Moreover, `$FOps` could be renamed to `$FileOps`
-without any shadowing taking place.
+The fresh `$Child` instance is added to the *instance index space* which other
+definitions (in the `...`) can refer to via the identifier `$child`. Without
+the `instance` definition, no instance of `$Child` would be created. If there
+were a second `instance` definition of `$Child`, two instances would be
+created. Thus, this proposal Module Linking separates the concepts of *defining
+a module* from *creating an instance* of a module.
 
-A new form of inline sugar is added for outer aliases, symmetric to the export
-alias sugar introduced above. For example, the above `$CHILD` module could have
-been equivalently written:
+A more interesting example uses instance definitions to link two core modules
+together:
 ```wasm
-  (module $CHILD
-    (import "fileops" (instance $fops (type outer $PARENT $FileOps)))
+(adapter module
+  (module $A
+    (func (export "answer") (result i32) (i32.const 42))
+  )
+  (module $B
+    (func (import "the" "answer") (result i32))
+  )
+  (instance $a (instantiate $A))
+  (instance $b (instantiate $B (import "the" (instance $a))))
+)
+```
+Here, the two-level import names of core modules are resolved by using the
+first name (`"the"`) as a named parameter supplied by `instantiate` and the
+second name (`"answer"`) as the name of an export.
+
+The static validation rules for `instantiate` ensure that:
+* every `name` imported by the instantiated module is supplied exactly once by
+  an `import` in the list;
+* the indices in the `def-ref`s refer to a preceding definitions of matching
+  type.
+
+One reason to have explicit instance definitions is to allow code generators
+and developers to construct arbitrary DAGs of module instances where individual
+modules can be instantiated multiple times in the DAG. For example, the
+following adapter module creates two instances of `$Libc` for two non-[PIC]
+modules that would otherwise clobber each other if they shared a linear memory:
+```wasm
+(adapter module
+  (module $Libc
+    (memory (export "memory") 1)
+    (func (export "malloc") (param i32) (result i32) ...)
+  )
+
+  (module $A
+    (memory (import "libc" "memory") 1)
+    (func (import "libc" "malloc") (param i32) (result i32))
+    (func (export "run") ...)
+  )
+  (instance $libcA (instantiate $Libc))
+  (instance $a (instantiate $A (import "libc" (instance $libcA))))
+
+  (module $B
+    (memory (import "libc" "memory") 1)
+    (func (import "libc" "malloc") (param i32) (result i32))
+    (func (export "run") ...)
+  )
+  (instance $libcB (instantiate $Libc))
+  (instance $b (instantiate $B (import "libc" (instance $libcB))))
+)
+```
+This adapter module contains 3 child modules but creates 4 module instances at
+instantiation-time. This works because the import string `"libc"` in `$A` and
+`$B` is not looked up in a global namespace; it's a named parameter supplied
+directly by the outer adapter module.
+
+Lastly, `instance-expr` offers an alternative to `instantiate` for creating
+instances: instances can be synthesized by "tupling" together existing
+definitions. For example, the following adapter module creates an instance that
+pairs together two existing instances:
+```wasm
+(adapter module
+  (module $Inner ...)
+  (instance $left (instantiate $Inner))
+  (instance $right (instantiate $Inner))
+  (instance $pair
+    (export "left" (instance $left))
+    (export "right" (instance $right))
+  )
+)
+```
+Technically, this tupling instance definition is just shorthand for an
+auxiliary adapter module that reexports all its imports. This shorthand will
+become more evidently useful once other definitions are presented (below).
+
+
+### Import Definitions
+
+Imports in adapter modules serve the same role as in core modules, but with an
+expanded set of importable types that allow whole modules and instances to be
+imported:
+```
+import       ::= (import <name> <def-type>)
+def-type     ::= <instancetype>
+               | <moduletype>
+               | <core:functype>
+               | <core:tabletype>
+               | <core:memtype>
+               | <core:globaltype>
+instancetype ::= (instance <id>? (export <name> <def-type>)*)
+moduletype   ::= (module <id>? (import <name> <def-type>)* (export <name> <def-type>)*)
+```
+The `core:`-prefixed productions refer to Core WebAssembly's [`functype`],
+[`tabletype`], [`memtype`] and [`globaltype`] productions.
+
+Unlike core modules, adapter module imports do not allow duplicate names.
+This is necessary to ensure that the named arguments passed by `instantiate`
+unambiguously match a single import.
+
+Also unlike core modules, adapter module imports only have a single name
+(whereas core imports have two names). The reason for this is that, with the
+ability to import instances, the *exports* of an imported instance take on the
+role of the second-level name. Thus, always requiring two names would force
+extra, unnecessary names to be invented.
+
+As an example, the following adapter module instantiates its contained core
+module with imported `libc` module, matching the second-level name `malloc`
+against the declared exports of `libc`:
+```wasm
+(adapter module $M
+  (import "libc" (module $Libc
+    (export "malloc" (func (param i32) (result i32)))
+  ))
+  (module $Core
+    (func (import "libc" "malloc") (param i32) (result i32))
     ...
   )
+  (instance $libc (instantiate $Libc))
+  (instance $core (instantiate $Core (import "libc" (instance $libc))))
+)
 ```
-which would generate the same abstract syntax and binary representation.
+Note that, by importing `libc` as a *module*, instead of as an *instance*, `$M`
+is able to create a new instance of `libc` with a fresh, private linear memory.
+This allows `$M` to share the *code* of `libc` with other adapter modules
+without being forced to share linear memory (which could, e.g., lead to one
+module's static global data clobbering another's).
 
-One subtle related detail is that ([in preparation for type imports and
-exports][Issue-21]) module and instance *types* are like nested modules in that
-they create new, *empty* index- and name-spaces. For example, in the following
-example, outer aliases must be used in order to reuse the `$Libc` and
-`$FileOps` type definitions in the module type of `$IN_MEMORY_FS`:
+Adapter modules can also import whole instances, as a replacement for two-level
+imports. For example:
 ```wasm
-(module $PARENT
-  (type $Libc (instance
-    ...
-  ))
-  (type $FileOps (instance
-    ...
-  ))
-  (import "in-memory-fs" (module $IN_MEMORY_FS
-    (import "libc" (instance (type outer $PARENT $Libc)))
-    (export "fileops" (instance (type outer $PARENT $FileOps)))
+(adapter module $N
+  (import "wasi:filesystem" (instance $libc
+    (export "path_open" (func ... ))
+    (export "read" (func ...))
   ))
   ...
 )
 ```
-These aliases are necessary since, within the scope of the type of
-`$IN_MEMORY_FS`, the type index space is initially empty.
+Here, `$N` imports an instance of the `wasi:filesystem` interface, which means
+that *someone else* has already created the instance and `$N` cannot do so
+itself.
 
-In general, language-independent tools can merge multiple `.wasm` files in a
-dependency graph into one `.wasm` file by performing transformations that do
-not require relocations or any other metadata from the toolchain. The reverse
-transformation is also possible: the nested modules of a `.wasm` can be split
-out into their own `.wasm` files by duplicating outer-aliased definitions.
-Thus, bundling and packaging tools have a high degree of flexibility in
-determining the final deployment artifacts.
+For the same reason that `instantiate` operates uniformly on modules, imports
+do not distinguish between core modules and adapter modules; all that matters
+is that the (core|adapter) module have the expected import and export types.
+That being said, since adapter modules have a larger available set of
+importable types (viz., module and instance types and, later, interface types),
+certain signatures will only be implementable by adapter modules in practice.
 
-In the future, nested modules may be independently useful for [feature testing]
-or supplying first-class module references (via `ref.module $module-index`) to
-run-time instantiation APIs.
-
-
-### Module and Instance Exports
-
-Lastly, symmetric to all other kinds of definitions, modules and instances can
-be exported. For example:
+To deal with the two-level imports of core modules, the Component Model assigns
+a module type using single-level imports of instances with the second-level
+names as exports. For example, the following core module:
 ```wasm
 (module
-  (import "a" (module $a ...))
-  (module $b ...)
-  (import "c" (instance $c ...))
-  (instance $d ...)
-
-  (export "e1" (module $a))
-  (export "e2" (module $b))
-  (export "e3" (instance $c))
-  (export "e4" (instance $d))
+  (import "one" "foo" (func))
+  (import "two" "bar" (func))
+  (import "one" "baz" (func))
+  ...
 )
 ```
-Therefore, module and instance types can appear in both the imports and exports
-of module types and instance types.
-
-Consequently, instances can be nested N levels deep. Correspondingly, the
-inline-alias syntax is extended to allow a sequence of N export names:
+would be assigned the following module type:
 ```wasm
 (module
+  (import "one" (instance
+    (export "foo" (func))
+    (export "baz" (func))
+  ))
+  (import "two" (instance
+    (export "bar" (func))
+  ))
+)
+```
+Since module types do not allow duplicate import or export names, not all core
+modules can be assigned a module type. Thus, adapter modules do not allow the
+nesting or importing of core modules with duplicate imports.
+
+Module and instance types also support subtyping, so that superfluous imports
+and exports can be ignored. For example, the following adapter module
+validates, with the superfluous import `a` being ignored by `$N` and the
+superfluous export `d` being ignored by `$M`.
+```wasm
+(adapter module
+  (adapter module $M
+    (import "i" (module
+      (import "a" (func))
+      (import "b" (func))
+      (export "c" (func))
+    ))
+  )
+  (module $N
+    (import "b" (func))
+    (func (export "c") ...)
+    (func (export "d") ...)
+  )
+  (instance (instantiate $M (import "i" (module $N))))
+)
+```
+Additionally, since imports and exports are matched by name, module and
+instance subtyping ignores import/export declaration order.
+
+
+### Export Definitions
+
+Exports in adapter modules serve the same role as in core modules, but with an
+expanded set of exportable types that allow whole modules and instances to be
+exported:
+```
+export ::= (export <name> <def-ref>)
+```
+(Note: `def-ref` is defined [above](#instance-definitions).)
+
+As an example, the following adapter module implements the WASI filesystem
+interface, exporting the instance with the name `wasi:filesystem` to provide a
+clear semantic connection between the implementation and the interface.
+```wasm
+(adapter module
+  (module $Core
+    (func (export "path_open") ...)
+    (func (export "read") ...)
+  )
+  (instance $core (instantiate $Core))
+  (export "wasi:filesystem" (instance $core))
+)
+```
+To show an example of exporting individual functions, memories, tables, etc,
+we first need the ability to extract these from core instances via Alias
+Definitions.
+
+
+### Alias Definitions
+
+Alias definitions inject other modules' definitions into the current module's
+index spaces. Aliases can target either instance exports or the local
+definitions of an outer adapter module:
+```
+alias        ::= (alias <alias-target>)
+alias-target ::= <instanceidx> <name> <alias-name>
+               | <outeridx> <idx> <alias-name>
+alias-name   ::= (instance <instanceidx>)
+               | (module <moduleidx>)
+               | (func <funcidx>)
+               | (type <typeidx>)
+               | (table <tableidx>)
+               | (memory <memidx>)
+               | (global <globalidx>)
+```
+As an example of an instance-export alias, the following adapter module
+aliases the `f` export of `i` in order to pass it as the `foo` import of `M`:
+```wasm
+(adapter module
+  (import "M" (module $M
+    (import "foo" (func))
+  ))
   (import "i" (instance $i
-    (export "j" (instance
-      (export "k" (func))))))
-  (func (call (func $i "j" "k")))
+    (export "f" (func))
+    (export "g" (func))
+  ))
+  (alias $i "f" (func $f))
+  (instance $m (instantiate $M (import "foo" (func $f))))
 )
 ```
-which desugars to:
+As an example of an outer alias, in the following adapter module, `$Inner`
+aliases `$Outer`'s `$Libc` module, avoiding the need to manually import it:
 ```wasm
-(module
-  (import "i" (instance $i
-    (export "j" (instance
-      (export "k" (func))))))
-  (alias $i "j" (instance $j))
-  (alias $j "k" (func $k))
-  (func (call $k))
+(adapter module $Outer
+  (module $Libc
+    ...
+  )
+  (adapter module $Inner
+    (alias $Outer $Libc (module $InnerLibc))
+    (instance (instantiate $InnerLibc))
+    ...
+  )
+)
+```
+Here, `$Outer` and `$Libc` serve as symbolic [de Bruijn indices], ultimately
+resolving to a pair of integers: the number of enclosing adapter modules to
+skip, and the index of the target definition.
+
+Adapter module definitions containing outer aliases effectively produce a
+module [closure] at instantiation time, including a copy of the outer-aliased
+definitions in the module value. Because of the prevalent assumption that
+module values are stateless, outer aliases are restricted to only refer to
+stateless module and type definitions. (In the future, outer aliases to all
+kinds of definitions could be allowed by recording the "statefulness" of the
+resulting bound module in the resulting bound module's type.)
+
+Additionally, to maintain the acyclicy of module instantiation, outer aliases
+are only allowed to refer to preceding outer definitions. Otherwise, modules
+could easily create incoherent (or coherent, but mind-bending) recursive
+definitions which would complicate tools and implementations.
+
+With both instance and outer aliases, the alias definition inserts the target
+definition into the index space of the `alias-name` (so, e.g.,
+`(alias $i "foo" (func $f))` inserts `foo` into the function index space, with
+`$f` resolving to the new function index). The target definition kind is
+validated to actually match the kind of the index space. After that, the
+aliased definition can be used in all the same ways as a normal imported or
+internal definition.
+
+For symmetry with [imports][func-import-abbrev], aliases can be written
+in an inverted form that puts the definition kind first:
+```wasm
+(func $f (import "i" "f")) ≡ (import "i" "f" (func $f))  ;; (existing)
+(func $g (alias $i "g1"))  ≡ (alias $g "g1" (func $g))   ;; (new)
+```
+
+To reduce the syntactic burden in the text format, aliases come with syntactic
+sugar for implicitly declaring aliases inline, in the same manner as the Core
+WebAssembly's [`typeuse`] sugar.
+
+For instance-export aliases, the inline sugar has the form:
+```
+(kind <instanceidx> <name>+)
+```
+where the `<name>+` is a sequence of exports projected from the `<instanceidx>`.
+For example, the following snippet using inline alias sugar:
+```wasm
+(instance $j (instantiate $J (import "f" (func $i "f"))))
+(export "x" (func $j "g" "h"))
+```
+is equivalent to the expanded explicit aliases:
+```wasm
+(alias $i "f" (func $f_alias))
+(instance $j (instantiate $J (import "f" (func $f_alias))))
+(alias $j "g" (instance $g_alias))
+(alias $g_alias "h" (func $h_alias))
+(export "x" (func $h_alias))
+```
+
+For outer aliases, the inline sugar is simply the identifier of the outer
+definition, resolved using normal lexical scoping rules. For example, the
+following adapter module:
+```wasm
+(adapter module $M
+  (module $N ...)
+  (adapter module
+    (alias $M $N (module $N))
+    (instance (instantiate $N))
+  )
+)
+```
+can be equivalently written:
+```wasm
+(adapter module
+  (module $N ...)
+  (adapter module
+    (instance (instantiate $N))
+  )
 )
 ```
 
-Symmetric to the "zero-level export" mentioned [above](#module-and-instance-types)
-which is allowed in module *types*, zero-level exports are also allowed in
-module *definitions* as a convenient way to define a module's exports to be
-that of a given instance.
-
-For example, this module:
+Using aliases, an adapter module can re-export individual functions:
 ```wasm
-(module
-  (module $M (func (export "foo")))
-  (instance $i (instantiate $M))
-  (export $i)
+(adapter module
+  (module $Core1
+    (func (export "foo") ...)
+  )
+  (instance $core1 (instantiate $Core1))
+  (module $Core2
+    (func (export "bar") ...)
+  )
+  (instance $core2 (instantiate $Core2))
+  (export "a" (func $core1 "foo"))
+  (export "b" (func $core2 "bar"))
 )
 ```
-exports the function `foo`. If `$i` were instead exported with a normal
-single-level export, the outer module would instead export an *instance* (which
-itself exported `foo`).
+This example uses the inline alias sugar to alias `foo` and `bar`,
+exporting them with the names `a` and `b`, resp.
 
-
-### Binary Format Considerations
-
-This proposal defines three new [sections] in the binary format:
-* **Module Section**: contains a list of module definitions, encoded using
-  the same [`module` binary format production] that decodes top-level modules
-  (making `module` a recursive production). Due to nested modules only being
-  able to refer to preceding parent definitions, in a streaming-compilation
-  scenario, nested modules may be compiled as soon as their bytes are received.
-* **Instance Section**: contains a list of `instance` definitions, currently
-  all defined via `instantiate`.
-* **Alias Section**: contains a list of `alias` definitions, both to enclosing
-  modules' module and type definitions, and to preceding instance definitions'
-  exports.
-
-The tricky thing about aliases is that they need to both *refer to* and be
-*referred to by* instance definitions. Moreover, once the [Type Imports]
-proposal is incorporated, instances will contain type exports which type and
-module definitions will need to reference. Keeping all the sections monolithic
-would therefore necessarily create cycles between them, which wasm has thus far
-avoided by design. To prevent illegal cycles, validation would need to implement
-a cycle-checking algorithm.
-
-To avoid this complexity, this proposal instead loosens the section ordering
-rules such that the 5 initial sections (Type, Import, Module, Instance, Alias)
-can appear in any order, any number of times each. When a section is present
-multiple times, its definitions are concatenated. When validating a definition
-in one of these sections, the validation [index spaces] are defined to only
-contain the definitions up to that point. Thus, a validation algorithm can
-represent each index space with a vector that is appended to as each section
-is validated with vector bounds checking ensuring acyclicy.
-
-To ease implementation and preserve the property that imports always occupy
-the first indices of an index space, one constraint is placed on the initial
-section ordering: all Import Sections must precede all Module and Instance
-Sections.
-
-As an example, the text module:
+Addititionally, aliases are useful in combination with instance
+definitions for being able to synthesize instances from individual
+definitions. For example:
 ```wasm
-(module
+(adapter module
+  (import "x" (instance $x
+    (export "foo" (func))
+    (export "bar" (func))
+  ))
+  (instance $y
+    (export "a" (func $x "foo"))
+    (export "b" (func $x "bar"))
+  )
+  ...
+)
+```
+Here, the imported instance `x` is transformed into a new instance `y` by
+aliasing `x`'s exports and tupling them back together with new names. The new
+instance `y` can then be passed to `instantiate` or `export`. In this way,
+instances can be easily renamed and recombined via aliases. Due to the
+declarativity of Module Linking, all this instance and name manipulation is
+resolved at compile time and thus incurs no runtime penalty.
+
+
+### Type Definitions
+
+Type definitions in adapter modules serve the same role as they do in core
+modules, but with an expanded set of definable types that allow module and
+instance types. Type definitions allow these compound types to be reused to
+avoid duplication.
+```
+type ::= (type $id <def-type>)
+```
+(Note: `def-type` is defined [above](#import-definitions).)
+
+For example, using both type and alias definitions, the type of `$Libc`
+is deduplicated in the following adapter module:
+```wasm
+(adapter module
+  (type $LibcModule (module
+    (export "memory" (memory 1))
+    (export "malloc" (func (param i32) (result i32)))
+  ))
+  (import "Libc" (module $Libc (type $LibcModule)))
+  (import "A" (module $A
+    (import "Libc" (module $Libc (type $LibcModule)))
+    ...
+  ))
+  (import "B" (module $B
+    (import "Libc" (module $Libc (type $LibcModule)))
+    ...
+  ))
+  ...
+)
+```
+Here, `(type ...)` is used to refer to a type definition, inheriting Core
+WebAssembly's [`typeuse`] syntax. This adapter module is an example of the
+kind of thing that a bundler might produce to link together modules `A` and `B`
+sharing common `Libc` code.
+
+Frequently an adapter module will need to define both a module type and an
+instance type that is the result of instantiating the module type. To avoid
+duplicating the list of exports in both the module and instance types, a
+bit of syntactic sugar is added, allowing an instance's exports to be injected
+into a module by writing `(export $InstanceType)` (without a `<name>` before
+the `$InstanceType`). For example, this sugar could be used to share between
+the `Libc` instance and module types:
+```wasm
+(adapter module
+  (type $LibcInstance (instance
+    (export "memory" (memory 1))
+    (export "malloc" (func (param i32) (result i32)))
+  ))
+  (type $LibcModule (module
+    (export $LibcInstance)
+  ))
+  ...
+)
+```
+In this example, `$LibcInstance` is the type of already-created instances while
+`$LibcModule` is the type of modules that can be instantiated to create
+`$LibcInstance`-compatible instances.
+
+
+## Binary Format Considerations
+
+The basic idea of the binary format for adapter modules is to replicate the
+conventions of the core module binary format to the extent possible. At the
+top-level, an adapter module has a [preamble][Module Binary] followed by a
+sequence of [sections].
+
+To distinguish core modules from adapter modules, the [`version`][Module
+Binary] field is split into two `u16` fields: a `version` field and a `layer`
+field, where core modules implicitly already have the `layer` set to 0 and
+adapter modules would have the `layer` set to 1. Thus the `layer` field would
+allow runtimes to load both kinds of modules through a single entry point
+(e.g., the existing JS API or ESM-integration), unambiguously determining how
+to interpret the bytes by looking at the premable.
+
+Like core modules, different definition kinds are encoded in different binary
+section kinds (e.g., "modules" go into a "module section", "instances" go in
+an "instance section", etc).
+
+Unlike core modules, adapter module sections can go in any order and there can
+be multiple sections of a given kind (e.g., multiple module sections). The
+reason for this is to align the binary format order with the definition order,
+where any definition can refer back to any preceding definition, so that
+acyclicy can be enforced by simply requiring that all referenced indices are
+less-than the current definition's index.
+
+When core modules are embedded in adapter modules, this is done by literally
+embedding a [core module binary] in-line in the module section. Thus, a
+runtime can implement adapter modules in terms of an existing core engine
+by recursively invoking the engine's binary decoding logic when a core module
+definition is encountered. More generally, just as the Component Model spec is
+layered in top of the Core WebAssembly spec, a Component Model implementation
+is meant to be layered on top of a Core WebAssembly implementation.
+
+As an example, this adapter module:
+```wasm
+(adapter module
   (import "a" (instance $a (export "f" (func))))
   (module $M
-    (import "g" (func))
-    (func (export "h")))
-  (instance $m1 (instantiate $M (import "g" (func $a "f"))))
-  (instance $m2 (instantiate $M (import "g" (func $m1 "h"))))
-  (func $x (call (func $m2 "h")))
+    (import "a" "f" (func))
+    (func (export "f")))
+  (instance $m1 (instantiate $M (import "a" (instance $a))))
+  (instance $m2 (instantiate $M (import "a" (instance $m1))))
+  (alias $m2 "f" (func $f))
+  (export "g" (func $f))
 )
 ```
 could be encoded with the binary section sequence:
-1. Type Section, defining an instance type (for `$a`) and function type (for `$x`)
-2. Import Section, defining the import `$a`, referencing (1)
-3. Module Section, defining the module `$M`, which is allowed to alias the
-   parent module's `[]->[]` function type (referencing (1))
-4. Alias Section, injecting the `f` export of `$a` into the function index
-   space, referencing (2)
-5. Instance Section, defining the instance `$m1`, referencing (3) and (4)
-6. Alias Section, injecting the `g` export of `$m1` into the function index
-   space, referencing (5)
-7. Instance Section, defining the instance `$m2`, referencing (3) and (6)
-8. Alias Section, injecting the `g` export of `$m2` into the function index
-   space, referencing (7)
-9. Function Section, declaring `$x` in the function index space, referencing (1)
-10. Code Section, defining `$x`
+1. Type Section, defining an instance type (for `$a`) and function type (for `f`)
+2. Import Section, defining the import `$a`, referencing the instance type in (1)
+3. Module Section, defining the module `$M` by embedding the core module binary
+   format of `$M` inline
+4. Instance Section, defining the instance `$m1`, referencing (3) and (2)
+5. Instance Section, defining the instance `$m2`, referencing (3) and (4)
+8. Alias Section, adding `f` to the function index space, referencing (5)
+9. Export section, exporting `g`, referencing (8)
 
-This repository also contains an [initial proposal for the binary format
-updates](./Binary.md).
+This repository also contains a [detailed binary format sketch](./Binary.md).
 
 
-### Summary
+## Web Platform Integration
 
-To summarize the proposed changes (all changes in both text and binary format):
-* The `module` field of [`import`] becomes optional (allowing single-level
-  imports).
-* New `module` and `instance` type constructors are added that may be used to
-  define types in the [type section].
-* New `module` and `instance` cases are added to [`importdesc`], referencing
-  module and instance type definitions in the type section.
-* A new Module Section is added which contains module definitions, encoded
-  using the same binary format as top-level modules.
-* A new Instance Section is added which contains a sequence of instance
-  definitions.
-* A new Alias Section is added which contains a sequence of alias definitions.
-* New `module` and `instance` cases are added to [`exportdesc`] and the export
-  string becomes optional (allowing zero-level exports).
+### JS API
+
+The [JS API] currently provides functions like `WebAssembly.compile()` and
+`WebAssembly.compileStreaming()` which take raw bytes from an `ArrayBuffer` or
+`Response` object and compile them into core modules that are wrapped in a
+`WebAssembly.Module` objects.
+
+To natively support the Component Model, the JS API would be extended to allow
+the existing JS API functions (`WebAssembly.compile()` et al) to accept adapter
+module binaries. As described [above](#binary-format-considerations), an engine
+can determine whether a given binary is a core or adapter module by examining
+the `layer` field in the first 8 bytes.
+
+Since adapter modules have the same outward-facing structure as core modules,
+the result of loading an adapter module with the JS API would just be a
+`WebAssembly.Module` object. One area where the JS API would have to be
+extended is in the [*read the imports*] logic, to support single-level imports,
+instance imports and module imports. There is a fairly natural exension for all
+of these features. For example, the adapter module:
+```wasm
+;; a.wasm
+(adapter module
+  (import "one" (func))
+  (import "two" (instance
+    (export "three" (instance
+      (export "four" (module
+        (import "five" (func))
+        (export "six" (func))
+      ))
+    ))
+  ))
+)
+```
+could be successfully instantiated via:
+```js
+WebAssembly.instantiateStreaming(fetch('./a.wasm'), {
+  one: () => (),
+  two: {
+    three: {
+      four: new WebAssembly.Module(code)
+    }
+  }
+});
+```
+where `instantiateStreaming` checks that the module created from `code` exports
+a function `six` (and *may* import a function `five`).
 
 
-## Use Cases Revisited
+### ESM-integration
 
-Worked examples of the [above use cases](#use-cases) are given in separate docs:
-* [Link-Time Virtualization](Example-LinkTimeVirtualization.md)
-* [Shared-Everything Dynamic Linking](Example-SharedEverythingDynamicLinking.md)
+Like the JS API, [ESM-integration] can be extended to load adapter module
+binaries in all the same places where core module binaries can be loaded today,
+branching on the `layer` field in the binary format to determine the kind of
+module to decode.
 
-## Additional Requirements Revisited
+As with the JS API, the main question is how ESM-integration should deal with
+single-level imports, instance imports and module imports. Going through these
+one at a time:
 
-Reconsidering the requirements stated [above](#additional-requirements):
-* **No GC dependency**: The instances that can be created by this proposal are
-  all necessarily kept alive by a parent instance. Thus, insofar as a host
-  is able to avoid GC in the status quo (without nested instances), a host can
-  continue to avoid the need for GC. Technically, a host could obtain a
-  reference to a nested instance, drop all references to its parent instances,
-  and thus be able to collect the unreachable parent instances as garbage.
-  However, this would only be an optional optimization and should never be
-  required for correct execution because there is a bounded amount of garbage
-  created. Moreover, hosts could continue to manage the lifetime of instances by
-  treating [stores] as the atomic unit of lifetime.
-* **Enable AOT compilation**: Nested instance definitions are declarative
-  enough to allow an AOT compiler to trivially connect exports to imports
-  to the same degree as a static linker, assuming it knows the resolution
-  of all module imports. In fact, when all module imports are known, a simple,
-  language-agnostic tool can transpile a `.wasm` module using the features
-  of this proposal into a `.wasm` module using only [multi-memory].
+For single-level imports of non-instance type, the natural analogue in an ESM
+context is the [default export]. Thus, a single-level non-instance import would
+receive whatever the ESM loader says the default value would be.
 
+For imports of instance type, the ESM loader would treat the exports of the
+instance type as the imported field names. In the normal two-level
+import-an-instance case, this corresponds exactly to existing ESM-integration
+behavior. However, for more-deeply nested instances, the ESM loader would need
+to recursively extract fields.
 
-## FAQ
-
-### How does this relate to ESM-integration?
-
-The Module Linking proposal extends the behavior of [`module_instantiate`]`(M, args)`
-to potentially instantiate a small, encapsulated DAG of instances rooted at
-`M`'s instance, with `M` being in charge of distributing `args` to its children
-in the DAG. The [ESM-integration] spec determines when to call
-`module_instantiate(M, args)`, and for which modules `M` and which values
-`args`. Thus, the two proposals are naturally complementary:
-* ESM-integration defines how a root wasm module imports host dependencies
-  (where every module in the ESM [module map] is considered a host dependency).
-* The Module Linking proposal defines how a wasm module can privately
-  instantiate its dependencies in a way that encapsulates state while sharing
-  code.
-
-With this division of labor, a root wasm module `M` loaded via ESM-integration
-can import all of its dependencies as *module imports*, using ESM-integration
-to fetch and cache the modules while still allowing `M` to completely control
-the instantiation and linking steps.
-
-In particular, ESM-integration would be extended to support this proposal so
-that, when a module `M` is loaded by ESM-integration, for single-level module
-imports:
-* the module import's string is [resolved] to a URL and fetched as usual
-* the response's `Content-Type` must be `application/wasm`
-* the fetched wasm module's imports are *not* recursively fetched as usual
-* the fetched wasm module is validated and decoded into a [`module`] which is:
-  * supplied as an arg to `module_instantiate(M, args)`
-  * stored in the [module map] for future sharing with other module imports
-
-More generally, when ESM-integration loads a module with a
-[single-level imports](#single-level-imports):
-* If the import is of module type, it is fetched as described above.
-* If the import is of instance type, it is treated the same way as a two-level
-  import is today, with the imported instance type's exports serving as the
-  second level.
-* Any other type of import is treated as a regular import of the
-  [default export].
-
-With this extension, a single JS app will be able to load multiple wasm
-programs using ESM `import` statements and have these programs safely and
-transparently share library code as described in
-[shared-everything dynamic linking example](Example-SharedEverythingDynamicLinking.md).
+Lastly, for imports of modules, ESM-integration would need the ESM loader to
+provide a fundamentally new way to parse/decode a module without *also*
+instantiating that module. Since this functionality is also useful for JS,
+there is already a proposal to add this to ESM called [Import Reflection].
+With this proposal, a module import:
+```wasm
+(adapter module
+  (import "./foo.wasm" (module $Foo))
+)
+```
+could be handled by ESM-integration as-if loaded by:
+```js
+import Foo from "./foo.wasm" as "wasm-module";
+```
 
 
 
+[Component Model]: ../../high-level
+[Component Model use cases]: ../../high-level/UseCases.md
+[Design Choices]: ../../high-level/Choices.md
+[Shared-Nothing]: ../../high-level/Choices.md
+
+[Interface Types]: https://github.com/WebAssembly/interface-types
+
+[ESM-integration]: https://github.com/WebAssembly/esm-integration
+[Import Reflection]: https://github.com/tc39-transfer/proposal-import-reflection
+
+[Core Concepts]: https://webassembly.github.io/spec/core/intro/overview.html#concepts
+[`typeuse`]: https://webassembly.github.io/spec/core/text/modules.html#type-uses
+[Index Space]: https://webassembly.github.io/spec/core/syntax/modules.html#indices
+[`module`]: https://webassembly.github.io/spec/core/text/modules.html#text-module
+[`import`]: https://webassembly.github.io/spec/core/text/modules.html#imports
+[`functype`]: https://webassembly.github.io/spec/core/text/types.html#function-types
+[`tabletype`]: https://webassembly.github.io/spec/core/text/types.html#table-types
+[`memtype`]: https://webassembly.github.io/spec/core/text/types.html#memory-types
+[`globaltype`]: https://webassembly.github.io/spec/core/text/types.html#global-types
+[func-import-abbrev]: https://webassembly.github.io/spec/core/text/modules.html#text-func-abbrev
+[Module Binary]: https://webassembly.github.io/spec/core/binary/modules.html#binary-module
+[Sections]: https://webassembly.github.io/spec/core/binary/modules.html#sections
+[Module Instantiation]: https://webassembly.github.io/spec/core/appendix/embedding.html#mathrm-module-instantiate-xref-exec-runtime-syntax-store-mathit-store-xref-syntax-modules-syntax-module-mathit-module-xref-exec-runtime-syntax-externval-mathit-externval-ast-xref-exec-runtime-syntax-store-mathit-store-xref-exec-runtime-syntax-moduleinst-mathit-moduleinst-xref-appendix-embedding-embed-error-mathit-error
+[JS API]: https://webassembly.github.io/spec/js-api/index.html
+[`WebAssembly.instantiate()`]: https://webassembly.github.io/spec/js-api/index.html#dom-webassembly-instantiate-moduleobject-importobject
+[*read the imports*]: https://webassembly.github.io/spec/js-api/index.html#read-the-imports
 
 [Statically link]: https://en.wikipedia.org/wiki/Static_library
 [Native Dynamic Linking]: https://en.wikipedia.org/wiki/Dynamic_loading
 [Principle of Least Authority]: https://en.wikipedia.org/wiki/Principle_of_least_privilege
 [Virtualize]: https://en.wikipedia.org/wiki/Virtualization
 [Mocking]: https://en.wikipedia.org/wiki/Mock_object
-[De Bruijn Index]: https://en.wikipedia.org/wiki/De_Bruijn_index
+[De Bruijn Indices]: https://en.wikipedia.org/wiki/De_Bruijn_index
+[Closure]: https://en.wikipedia.org/wiki/Closure_(computer_programming)
+[PIC]: https://en.wikipedia.org/wiki/Position-independent_code
 
-[Semantic Phases]: https://webassembly.github.io/spec/core/intro/overview.html#semantic-phases
-[JS API]: https://webassembly.github.io/spec/js-api/index.html
-[`instantiate`]: https://webassembly.github.io/spec/js-api/index.html#dom-webassembly-instantiate-moduleobject-importobject
-[Module Validation]: https://webassembly.github.io/spec/core/valid/modules.html#valid-module
-[Abbreviation]: https://webassembly.github.io/spec/core/text/conventions.html#abbreviations
-[`typeuse`]: https://webassembly.github.io/spec/core/text/modules.html#type-uses
-[Module Instantiation]: https://webassembly.github.io/spec/core/exec/modules.html#instantiation
-[WAT]: https://webassembly.github.io/spec/core/text/conventions.html#conventions
-[Indices]: https://webassembly.github.io/spec/core/syntax/modules.html#indices
-[Index Spaces]: https://webassembly.github.io/spec/core/syntax/modules.html#indices
-[Sections]: https://webassembly.github.io/spec/core/binary/modules.html#sections
-[Type Section]: https://webassembly.github.io/spec/core/binary/modules.html#binary-typesec
-[Import Section]: https://webassembly.github.io/spec/core/binary/modules.html#binary-importsec
-[Embedding]: https://webassembly.github.io/spec/core/appendix/embedding.html
-[`module`]: https://webassembly.github.io/spec/core/syntax/modules.html#syntax-module
-[`moduleinst`]: https://webassembly.github.io/spec/core/exec/runtime.html#module-instances
-[`module_instantiate`]: https://webassembly.github.io/spec/core/appendix/embedding.html#embed-module-instantiate
-[`import`]: https://webassembly.github.io/spec/core/syntax/modules.html#syntax-import
-[`importdesc`]: https://webassembly.github.io/spec/core/syntax/modules.html#syntax-importdesc
-[`exportdesc`]: https://webassembly.github.io/spec/core/syntax/modules.html#syntax-exportdesc
-[`module` binary format production]: https://webassembly.github.io/spec/core/binary/modules.html#binary-module
-[func-import-abbrev]: https://webassembly.github.io/spec/core/text/modules.html#text-func-abbrev
-
-[Shared-Nothing Linking]: https://github.com/WebAssembly/interface-types/blob/master/proposals/interface-types/Explainer.md#enabling-shared-nothing-linking-of-webassembly-modules
-[Interface Types]: https://github.com/WebAssembly/interface-types/blob/master/proposals/interface-types/Explainer.md
-[Type Imports]: https://github.com/WebAssembly/proposal-type-imports/blob/master/proposals/type-imports/Overview.md
-[Export Types]: https://github.com/WebAssembly/proposal-type-imports/blob/master/proposals/type-imports/Overview.md#exports
-[Multi-Memory]: https://github.com/webassembly/multi-memory
-[GC Types]: https://github.com/WebAssembly/gc/blob/master/proposals/gc
-[ESM-integration]: https://github.com/WebAssembly/esm-integration
-[Function References]: https://github.com/WebAssembly/function-references
-[Feature Testing]: https://github.com/WebAssembly/conditional-sections/issues/22
-[Issue-21]: https://github.com/WebAssembly/module-linking/issues/21
-
-[`dlopen`]: https://pubs.opengroup.org/onlinepubs/009695399/functions/dlopen.html
-[`dlsym`]: https://pubs.opengroup.org/onlinepubs/009695399/functions/dlsym.html
 [Figma plugins]: https://www.figma.com/blog/an-update-on-plugin-security/
 [Attenuate]: http://cap-lore.com/CapTheory/Patterns/Attenuation.html
 [Default Export]: https://developer.mozilla.org/en-US/docs/web/javascript/reference/statements/export#Description
-[Module Map]: https://html.spec.whatwg.org/multipage/webappapis.html#module-map
-[Resolved]: https://html.spec.whatwg.org/multipage/webappapis.html#resolve-a-module-specifier

@@ -1,198 +1,175 @@
-# Module Linking Binary Format
+# Module Linking Binary Format (sketch)
 
-This document is intended to be a reference for the current state of the binary
-encoding of the module linking proposal. This is kept in sync with [the
-explainer](Explainer.md) and that is also recommended reading to understand this
-document. Currently this isn't striving to have a spec-level of detail, but
-hopefully it should be enough to get implementations off the ground and agreeing
-with each other!
+This document presents the binary format of the adapter modules in the
+[attribute grammar] style of the Core WebAssembly [text format]. Additionally,
+key validation rules are roughly sketched out. For explanations of what the
+different AST productions mean, consult the respective sections in the
+[explainer](Explainer.md). The overall plan for the binary format is
+described in the explainer's [Binary Format Considerations section](Explainer.md#binary-format-considerations).
 
-## Module-level updates
 
-At a high-level two new index spaces are added: modules and instances. Index
-spaces are also updated to be built incrementally as they are defined.
+## Module Definitions
 
-Three new sections are added
-
-* Module section, `modulesec`, defines nested modules.
-* Instance section, `instancesec`, declares and defines local instances.
-* Alias section, `aliassec`, brings in exports from nested instances or items
-  from the parent module into the local index space.
-
-The Type, Import, Module, Instance, and Alias sections can appear in any order
-at the beginning of a module. Each item defined in these sections can only refer
-to previously defined items. For example instance 4 cannot reference instance 5,
-and similarly no instance can refer to the module's own functions. Similarly
-instance 4 can only access module 3 if module 3 precedes instance 4 in binary
-format order.
-
-## Type Section updates
-
-Updates to
-[`typesec`](https://webassembly.github.io/spec/core/binary/modules.html#binary-typesec):
-
+(See [module definitions](Explainer.md#module-definitions) in the explainer.)
 ```
-typesec ::=  t*:section_1(vec(type))
-
-type ::=
-            0x60 ft:functype                     ->       ft
-            0x61 mt:moduletype                   ->       mt
-            0x62 it:instancetype                 ->       it
-
-functype     ::= rt_1:resulttype rt_2:resulttype ->       rt_1 -> rt-2
-moduletype   ::= mtd*:vec(moduletypedef)         ->       mtd*
-instancetype ::= itd*:vec(instancetypedef)       ->       itd*
-
-moduletypedef ::=
-            itd                                  ->       itd
-            0x02 i:import                        ->       {import i}
-
-instancetypedef ::=
-            0x01 t:type                          ->       {type t}
-            0x07 et:exporttype                   ->       {export et}
-            0x0f a:alias                         ->       {alias a}
-
-exporttype ::= nm:name d:importdesc              ->       {name nm, desc d}
+magic            ::= 0x00 0x61 0x73 0x6D
+adapter-version  ::= 0x0a 0x00 0x01 0x00
+adapter-preamble ::= <magic> <adapter-version>
+adapter-module   ::= <adapter-preamble> s*:<section>* => (adapter module flatten(s*))
+section          ::= t*:section_1(vec(<type>))        => t*
+                   | i*:section_2(vec(<import>))      => i* 
+                   | m*:section_3(vec(<module>))      => m*
+                   | i*:section_4(vec(<instance>))    => i*
+                   | a*:section_5(vec(<alias>))       => a*
+                   | e*:section_6(vec(<export>))      => e*
+module           ::= size:u32 m:<core:module>         => m   (if size = ||m||)
+                   | size:u32 m:<adapter-module>      => m   (if size = ||m||)
 ```
+Notes:
+* The first `u16` of `adapter-version` is the pre-release version, `0xa`. The
+  idea is that, before final standardization, this pre-release version will be
+  bumped to coordinate spec changes in the prototypes. When the standard is
+  finalized, the version will be changed one last time to `0x1`. This mirrors
+  what happened during the path to Core WebAssembly 1.0.
+* The second `u16` of `adapter-version` is the "module kind" which is `0x1` for
+  adapter modules and `0x0` for core modules.
+* The `section_X`'s refer to Core WebAssembly's [`section`] parameterized rule.
+  The `X` numbers (and all other magic constants in the adapter module binary
+  format) do not attempt to be distinct from or align with the core module
+  binary format since, over time, this distinction/alignment will be lost as
+  both formats may grow independently.
+* `core:module` refers to Core WebAssembly's [`module`] rule.
 
-Note: the numeric discriminants in `moduletypedef` are chosen to match the
-section numbers for the corresponding sections.
+One general note with respect to the binary format and validation is that each
+definition is validated in an environment defined containing only the preceding
+definitions. Thus, the index spaces are built and validated incrementally as
+each definition of the module is decoded and validated. For validation
+purposes, the `section` boundaries are not significant; all that matters is the
+individual definitions (`type`, `import`, `export`, `module`, `instance` and
+`alias`) contained within the sections.
 
-Referencing:
-* [`resulttype`](https://webassembly.github.io/spec/core/binary/types.html#binary-resulttype)
-* [`import`](https://webassembly.github.io/spec/core/binary/modules.html#binary-import)
-* [`importdesc`](https://webassembly.github.io/spec/core/binary/modules.html#binary-importdesc) -
-  although note that this is updated below as well.
 
-**Validation**
+## Instance Definitions
 
-* The `moduletypedef`s of a `moduletype` are validated in a fresh set of index
-  spaces (currently, only the type index space is used). Thus, the function
-  type of a function export must either be defined inside the `moduletype` or
-  aliased. The same goes for `instancetypedef`s and `instancetype`s.
-* Types can only reference preceding type definitions. This forces everything to
-  be a DAG and forbids cyclic types. TODO: with type imports we may need cyclic
-  types, so this validation will likely change in some form.
-
-## Import Section updates
-
-Updates to
-[`importdesc`](https://webassembly.github.io/spec/core/binary/modules.html#binary-importdesc)
-
+(See [instance definitions](Explainer.md#instance-definitions) in the explainer.)
 ```
-# note that in MVP wasm this encoding specifies a zero-length `name` for the
-# second import string, but the following `0xff` byte is not a valid
-# `importdesc` prefix, so this encoding is invalid in MVP wasm
-import ::=
-    ...
-    nm:name 0x00 0xff d:importdesc              ->    {name nm, desc d}
-
-importdesc ::=
-    ...
-    0x05 x:typeidx                              ->    module x
-    0x06 x:typeidx                              ->    instance x
+instance      ::= ie:<instance-expr>                      => (instance ie)
+instance-expr ::= 0x00 m:<moduleidx> nd*:vec(<named-def>) => (instantiate m (import nd)*)
+                | 0x01 nd*:vec(<named-def>)               => (export nd)*
+named-def     ::= nm:<name> dr:<def-ref>                  => nm dr
+def-ref       ::= 0x00 x:<instanceidx>                    => (instance x)
+                | 0x01 x:<moduleidx>                      => (module x)
+                | 0x02 x:<funcidx>                        => (func x)
+                | 0x03 x:<tableidx>                       => (table x)
+                | 0x04 x:<memidx>                         => (memory x)
+                | 0x05 x:<globalidx>                      => (global x)
 ```
+Notes:
+* The indices in the `def-ref`s are validated according to the respective index
+  space. As mentioned above, index spaces are built incrementally as each
+  definition is validated.
+* The `import` arguments supplied by `instantiate` are validated against the
+  module `m` according to [module subtyping](Subtyping.md#instantiation) rules.
+* The `def-ref` codes are chosen to keep the shared-nothing kinds contiguous
+  (with room for future additions by Interface Types) and separate from the 
+  shared-everything core module kinds.
+* `name` refers to the Core WebAssembly's [`name`] rule.
 
-**Validation**
 
-* the `func x` production ensures the type `x` is indeed a function type
-* the `module x` production ensures the type `x` is indeed a module type
-* the `instance x` production ensures the type `x` is indeed an instance type
+## Import Definitions
 
-## Module section (14)
-
-A new module section is added
-
+(See [import definitions](Explainer.md#import-definitions) in the explainer.)
 ```
-modulesec ::=  m*:section_14(vec(modulecode))        ->        m*
-
-modulecode ::= size:u32 mod:module                      ->    mod, size = ||mod||
+import   ::= nm:<name> dt:<def-type> => (import nm dt)
+def-type ::= 0x00 x:typeidx          => (instance x)
+           | 0x01 x:typeidx          => (module x)
+           | 0x02 x:typeidx          => (func x)
+           | 0x03 tt:tabletype       => (table tt)
+           | 0x04 mt:memtype         => (memory mt)
+           | 0x05 gt:globaltype      => (global gt)
 ```
+Notes:
+* Unlike the text format, which allows module/instance/function types to be
+  written "inline", the binary format requires these compound types be defined
+  separately as a type definition, referred to be type index.
+* The `nm` are validated to be unique; duplicate import names are not allowed
+  in adapter modules.
+* The `typeidx` are validated against the type index space to match the
+  declared definition kind.
 
-Note that this is intentionally a recursive production where `module` refers to
-the top-level
-[`module`](https://webassembly.github.io/spec/core/binary/modules.html#binary-module)
 
-**Validation**
+## Export Definitions
 
-* This section adds nested modules to the parent module's module index space.
-* Each nested `module` is validated with the parent's context (types and module
-  index spaces) at the point of the nested `module` in the byte stream.
-
-## Instance section (15)
-
-A new section defining local instances
-
+(See [export definitions](Explainer.md#export-definitions) in the explainer.)
 ```
-instancesec ::=  i*:section_15(vec(instancedef))     ->    i*
-
-instancedef ::= 0x00 m:moduleidx arg*:vec(export)     ->    {instantiate m, imports arg*}
+export ::= nm:<name> dr:<def-ref> => (export nm dr)
 ```
-
-This defines instances in the module, appending to the instance index space.
-Each instance definition declares the module it's instantiating as well as the
-items used to instantiate that instance. Note that the leading 0x00 is intended
-to allow different forms of instantiation in the future if added. This is also a
-placeholder value for now since if an `instantiate` instruction will be added in
-the future we'll likely want this binary value to match that.
-
-**Validation**
-
-* The module index `m` must be in bounds.
-* Indices of items referred to by `exportdesc` are all in-bounds. Can only refer
-  to imports/previous aliases, since only those sections can precede.
-* The `arg*` list is validated against `m`'s imports according to
-  [module subtyping](Subtyping.md#instantiation) rules.
+Notes:
+* As with import definitions, the `nm` are validated to be unique.
+* As with instance definitions, the indices of `dt` are validated to be
+  be valid in the associated index space at the point of the export.
 
 
-## Alias section (16)
+## Alias Definitions
 
-A new module section is added
-
+(See [alias definitions](Explainer.md#alias-definitions) in the explainer.)
 ```
-aliassec ::=  a*:section_16(vec(alias))     ->        a*
-
-alias ::=
-    0x00 i:instanceidx 0x00 nm:name         ->        (alias $i "nm" (func))
-    0x00 i:instanceidx 0x01 nm:name         ->        (alias $i "nm" (table))
-    0x00 i:instanceidx 0x02 nm:name         ->        (alias $i "nm" (memory))
-    0x00 i:instanceidx 0x03 nm:name         ->        (alias $i "nm" (global))
-    0x00 i:instanceidx 0x05 nm:name         ->        (alias $i "nm" (module))
-    0x00 i:instanceidx 0x06 nm:name         ->        (alias $i "nm" (instance))
-    0x01 ct:varu32 0x05 m:moduleidx         ->        (alias outer ct m (module))
-    0x01 ct:varu32 0x07 t:typeidx           ->        (alias outer ct m (type))
+alias ::= 0x00 i:<instanceidx> nm:<name> 0x00 => (alias i nm (instance))
+        | 0x00 i:<instanceidx> nm:<name> 0x01 => (alias i nm (module))
+        | 0x00 i:<instanceidx> nm:<name> 0x02 => (alias i nm (func))
+        | 0x00 i:<instanceidx> nm:<name> 0x03 => (alias i nm (table))
+        | 0x00 i:<instanceidx> nm:<name> 0x04 => (alias i nm (memory))
+        | 0x00 i:<instanceidx> nm:<name> 0x05 => (alias i nm (global))
+        | 0x01 ct:<varu32> i:<moduleidx> 0x01 => (alias outer ct i (module))
+        | 0x01 ct:<varu32> i:<typeidx>   0x06 => (alias outer ct i (type))
 ```
+Notes:
+* For instance-export aliases, `i` is validated to refer to an instance in the
+  instance index space that actually exports `nm` with the specified definition
+  kind.
+* For outer aliases, `ct` is validated to be *less than* the number of enclosing
+  modules and `i` is validated to be a valid index in the specified
+  definition's index space of the enclosing adapter module indicated by `ct`
+  (counting outward, starting with `0` referring to the immediately-enclosing
+  adapter module).
 
-**Validation**
 
-* The instance, module and type indices are all in bounds. Remember that "in bounds"
-  means only those definitions preceding this alias definition in binary format
-  order. In the case of outer aliases, this means the position of the nested module
-  definition in the outer module.
-* Aliased instance export names must be found in `i`'s instance type with a
-  matching definition kind.
-* The `ct` of an outer alias must be *less than* the number of enclosing modules
-  which implicitly prevents outer aliases from appearing in top-level modules.
+## Type Definitions
 
-## Function section
-
-**Validation**
-
-* Type indices must point to function types.
-
-## Export section
-
-update
-[`exportdesc`](https://webassembly.github.io/spec/core/binary/modules.html#binary-exportdesc)
-
+(See [type definitions](Explainer.md#type-definitions) in the explainer.)
 ```
-exportdesc ::=
-    ...
-    0x05 x:moduleidx                        -> module x
-    0x06 x:instanceidx                      -> instance x
+type               ::= 0x7f itd*:vec(<instance-type-decl>)        -> (instance itd*)
+                     | 0x7e mtd*:vec(<module-type-decl>)          -> (module mtd*)
+                     | 0x7d p*:vec(<val-type>) r*:vec(<val-type>) -> (func (param p)* (result r)*)
+instance-type-decl ::= 0x01 t:<type>                              -> t
+                     | 0x05 a:<alias>                             -> a
+                     | 0x06 nm:<name> dt:<def-type>               -> (export nm dt)
+module-type-decl   ::= itd:<instance-type-decl>                   -> itd
+                     | 0x02 i:<import>                            -> i
+val-type           ::= 0x00 vt:<core:valtype>                     -> vt
 ```
+Notes:
+* Instance and modules types create a fresh type index spaces that are
+  populated and referenced by their contents. E.g., for a module type that
+  imports a function, the `import` `module-type-decl` must be preceded by
+  either a `type` or `alias` `module-type-decl` that adds the function type to
+  the type index space.
+* Currently, the only allowed form of `alias` in instance and module types
+  is `(alias outer ct li (type))`. In the future, other kinds of aliases
+  will be needed and this restriction will be relaxed.
+* To avoid redefining the whole binary format of Core WebAssembly's [`valtype`]
+  and to allow implementation reuse, the binary format for adapter modules'
+  `val-type` embeds `core:valtype`. A `0x00` prefix is used so that future
+  additions to `core:valtype` cannot conflict with future additions to
+  `val-type` (viz., in Interface Types).
+* The normal index space validation rules for adapter modules described above
+  ensure that module and instance type definitions are acyclic.
 
-**Validation**
 
-* Module/instance indexes must be in-bounds.
 
+[Attribute Grammar]: https://en.wikipedia.org/wiki/Attribute_grammar
+[Text Format]: https://webassembly.github.io/spec/core/text/conventions.html
+[`section`]: https://webassembly.github.io/spec/core/binary/modules.html#sections
+[`module`]: https://webassembly.github.io/spec/core/binary/modules.html#binary-module
+[`name`]: https://webassembly.github.io/spec/core/binary/values.html#binary-name
+[`valtype`]: https://webassembly.github.io/spec/core/binary/types.html#value-types
