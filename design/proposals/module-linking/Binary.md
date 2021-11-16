@@ -127,7 +127,7 @@ Notes:
 * For instance-export aliases, `i` is validated to refer to an instance in the
   instance index space that actually exports `nm` with the specified definition
   kind.
-* For outer aliases, `ct` is validated to be *less or eqeual than* the number
+* For outer aliases, `ct` is validated to be *less or equal than* the number
   of enclosing modules and `i` is validated to be a valid index in the
   specified definition's index space of the enclosing adapter module indicated
   by `ct` (counting outward, starting with `0` referring to the current adapter
