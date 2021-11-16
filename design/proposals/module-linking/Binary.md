@@ -15,7 +15,7 @@ described in the explainer's [Binary Format Considerations section](Explainer.md
 magic            ::= 0x00 0x61 0x73 0x6D
 adapter-version  ::= 0x0a 0x00 0x01 0x00
 adapter-preamble ::= <magic> <adapter-version>
-adapter-module   ::= <adapter-preamble> s*:<section>* => flatten(s*)
+adapter-module   ::= <adapter-preamble> s*:<section>* => (adapter module flatten(s*))
 section          ::= t*:section_1(vec(<type>))        => t*
                    | i*:section_2(vec(<import>))      => i* 
                    | m*:section_3(vec(<module>))      => m*
@@ -60,9 +60,9 @@ named-def     ::= nm:<name> dr:<def-ref>                  => nm dr
 def-ref       ::= 0x00 x:<instanceidx>                    => (instance x)
                 | 0x01 x:<moduleidx>                      => (module x)
                 | 0x02 x:<funcidx>                        => (func x)
-                | 0x10 x:<tableidx>                       => (table x)
-                | 0x11 x:<memidx>                         => (memory x)
-                | 0x12 x:<globalidx>                      => (global x)
+                | 0x03 x:<tableidx>                       => (table x)
+                | 0x04 x:<memidx>                         => (memory x)
+                | 0x05 x:<globalidx>                      => (global x)
 ```
 Notes:
 * The indices in the `def-ref`s are validated according to the respective index
@@ -84,9 +84,9 @@ import   ::= nm:<name> dt:<def-type> => (import nm dt)
 def-type ::= 0x00 x:typeidx          => (instance x)
            | 0x01 x:typeidx          => (module x)
            | 0x02 x:typeidx          => (func x)
-           | 0x10 tt:tabletype       => (table tt)
-           | 0x11 mt:memtype         => (memory mt)
-           | 0x12 gt:globaltype      => (global gt)
+           | 0x03 tt:tabletype       => (table tt)
+           | 0x04 mt:memtype         => (memory mt)
+           | 0x05 gt:globaltype      => (global gt)
 ```
 Notes:
 * Unlike the text format, which allows module/instance/function types to be
@@ -114,47 +114,48 @@ Notes:
 
 (See [alias definitions](Explainer.md#alias-definitions) in the explainer.)
 ```
-alias    ::= 0x00 i:<instanceidx> nm:<name> d:<def-kind> => (alias i nm d)
-           | 0x01 ct:<varu32> li:<localidx> d:<def-kind> => (alias outer ct li d)
-def-kind ::= 0x00                                        => (instance)
-           | 0x01                                        => (module)
-           | 0x02                                        => (func)
-           | 0x03                                        => (type)
-           | 0x10                                        => (table)
-           | 0x11                                        => (memory)
-           | 0x12                                        => (global)
+alias ::= 0x00 i:<instanceidx> nm:<name> 0x00 => (alias i nm (instance))
+        | 0x00 i:<instanceidx> nm:<name> 0x01 => (alias i nm (module))
+        | 0x00 i:<instanceidx> nm:<name> 0x02 => (alias i nm (func))
+        | 0x00 i:<instanceidx> nm:<name> 0x03 => (alias i nm (table))
+        | 0x00 i:<instanceidx> nm:<name> 0x04 => (alias i nm (memory))
+        | 0x00 i:<instanceidx> nm:<name> 0x05 => (alias i nm (global))
+        | 0x01 ct:<varu32> i:<moduleidx> 0x01 => (alias outer ct i (module))
+        | 0x01 ct:<varu32> i:<typeidx>   0x06 => (alias outer ct i (type))
 ```
 Notes:
-* For export aliases, `i` is validated to refer to an instance in the instance
-  index space that actually exports `nm` with the specified `def-kind`.
+* For instance-export aliases, `i` is validated to refer to an instance in the
+  instance index space that actually exports `nm` with the specified definition
+  kind.
 * For outer aliases, `ct` is validated to be *less than* the number of enclosing
-  modules and `li` is validated to be a valid index in the `def-kind` index space.
-* For the time being, export aliases may not have the `type` `def-kind` and outer
-  aliases may *only* have the `module` or `type` `def-kind`s.
+  modules and `i` is validated to be a valid index in the specified
+  definition's index space of the enclosing adapter module indicated by `ct`
+  (counting outward, starting with `0` referring to the immediately-enclosing
+  adapter module).
 
 
 ## Type Definitions
 
 (See [type definitions](Explainer.md#type-definitions) in the explainer.)
 ```
-type             ::= 0x7f e*:vec(export-decl)               -> (instance e*)
-                   | 0x7e mtd*:vec(module-type-decl)        -> (module mtd*)
-                   | 0x7d p*:vec(val-type) r*:vec(val-type) -> (func (param p)* (result r)*)
-export-decl      ::= nm:<name> dt:<def-type>                -> (export nm dt)
-module-type-decl ::= 0x00 t:<type>                          -> t
-                   | 0x01 i:<import>                        -> i
-                   | 0x05 a:<alias>                         -> a
-                   | 0x06 e:<export-decl>                   -> e
-val-type         ::= 0x00 vt:<core:valtype>                 -> vt
+type               ::= 0x7f itd*:vec(<instance-type-decl>)        -> (instance itd*)
+                     | 0x7e mtd*:vec(<module-type-decl>)          -> (module mtd*)
+                     | 0x7d p*:vec(<val-type>) r*:vec(<val-type>) -> (func (param p)* (result r)*)
+instance-type-decl ::= 0x01 t:<type>                              -> t
+                     | 0x05 a:<alias>                             -> a
+                     | 0x06 nm:<name> dt:<def-type>               -> (export nm dt)
+module-type-decl   ::= itd:<instance-type-decl>                   -> itd
+                     | 0x02 i:<import>                            -> i
+val-type           ::= 0x00 vt:<core:valtype>                     -> vt
 ```
 Notes:
-* Modules types create a fresh type index space that is populated and
-  referenced by their `module-type-decl`s. Thus, for a module type that imports
-  a function, the import `module-type-decl` must be preceded by either a type
-  or alias `module-type-decl` that adds the function type to the type index
-  space.
-* Currently, the only allowed form of `alias` in a `module-type-decl` is
-  an `(alias outer ct li (type))`. In the future, other kinds of aliases
+* Instance and modules types create a fresh type index spaces that are
+  populated and referenced by their contents. E.g., for a module type that
+  imports a function, the `import` `module-type-decl` must be preceded by
+  either a `type` or `alias` `module-type-decl` that adds the function type to
+  the type index space.
+* Currently, the only allowed form of `alias` in instance and module types
+  is `(alias outer ct li (type))`. In the future, other kinds of aliases
   will be needed and this restriction will be relaxed.
 * To avoid redefining the whole binary format of Core WebAssembly's [`valtype`]
   and to allow implementation reuse, the binary format for adapter modules'

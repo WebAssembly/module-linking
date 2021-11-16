@@ -123,8 +123,9 @@ create the dynamically-linked instance graph on the right at load-time:
 <p align="center"><img src="./shared-everything-dynamic-linking.svg" width="600"></p>
 
 Here, `libc` defines and exports a linear memory that is imported by the other
-core instances contained within the same component instance. Thus, we want the
-ability to share *code* without necessarily sharing *data*. Module systems
+core instances contained within the same component instance. The whole
+application uses the `libc` module three times, sharing *code*, but with each
+usage getting a distinct instance and thus not sharing *data*. Module systems
 where sharing a module forces sharing a module instance are common in existing
 programming languages but break shared-nothing isolation and this use case.
 
@@ -178,7 +179,7 @@ considerations for the binary format of adapter modules while a
 Like core modules, adapter modules are composed of sequences of definitions.
 This proposal includes 6 definition kinds:
 ```
-adapter-module ::= (adapter_module <id>? <definition>* )
+adapter-module ::= (adapter module <id>? <definition>* )
 definition     ::= <module>
                  | <instance>
                  | <import>
@@ -197,8 +198,8 @@ modules appearing only at leaves.
 For example, the following adapter module contains one adapter module and two
 core modules:
 ```wasm
-(adapter_module
-  (adapter_module $A
+(adapter module
+  (adapter module $A
     (module $B
       (func (export "one") (result i32) (i32.const 1))
     )
@@ -217,10 +218,10 @@ adapter and core modules; after definition, both kinds of modules simply have a
 *module type* against which uses are checked (more on module types below).
 
 Unlike core modules, the definitions inside an adapter module are inherently
-*ordered*. Moreover, definitions can only reference preceding definitions so
-that adapter module definitions are acyclic by nature. This acyclicy reflects
-the acyclic nature of Core WebAssembly's [module instantiation], which adapter
-modules can perform (as described below).
+*ordered*: definitions can only reference preceding definitions so that adapter
+module definitions are acyclic by nature. This acyclicy reflects the acyclic
+nature of Core WebAssembly's [module instantiation], which adapter modules can
+perform (as described below).
 
 Lastly, the syntax and semantics of core modules are not modified by adapter
 modules; all interaction with core modules happens through imports and exports
@@ -249,7 +250,7 @@ def-ref       ::= (instance <instanceidx>)
 As an example, the following `$Parent` adapter module creates a new `$Child`
 module instance every time `$Parent` is instantiated:
 ```wasm
-(adapter_module $Parent
+(adapter module $Parent
   (module $Child
     (memory 1)
   )
@@ -267,7 +268,7 @@ a module* from *creating an instance* of a module.
 A more interesting example uses instance definitions to link two core modules
 together:
 ```wasm
-(adapter_module
+(adapter module
   (module $A
     (func (export "answer") (result i32) (i32.const 42))
   )
@@ -294,7 +295,7 @@ modules can be instantiated multiple times in the DAG. For example, the
 following adapter module creates two instances of `$Libc` for two non-[PIC]
 modules that would otherwise clobber each other if they shared a linear memory:
 ```wasm
-(adapter_module
+(adapter module
   (module $Libc
     (memory (export "memory") 1)
     (func (export "malloc") (param i32) (result i32) ...)
@@ -327,7 +328,7 @@ instances: instances can be synthesized by "tupling" together existing
 definitions. For example, the following adapter module creates an instance that
 pairs together two existing instances:
 ```wasm
-(adapter_module
+(adapter module
   (module $Inner ...)
   (instance $left (instantiate $Inner))
   (instance $right (instantiate $Inner))
@@ -337,8 +338,9 @@ pairs together two existing instances:
   )
 )
 ```
-This tupling option will become more evidently useful once other definitions
-are presented (below).
+Technically, this tupling instance definition is just shorthand for an
+auxiliary adapter module that reexports all its imports. This shorthand will
+become more evidently useful once other definitions are presented (below).
 
 
 ### Import Definitions
@@ -347,13 +349,15 @@ Imports in adapter modules serve the same role as in core modules, but with an
 expanded set of importable types that allow whole modules and instances to be
 imported:
 ```
-import   ::= (import <name> <def-type>)
-def-type ::= (instance <id>? (export <name> <def-type>)*)
-           | (module <id>? (import <name> <def-type>)* (export <name> <def-type>)*)
-           | <core:functype>
-           | <core:tabletype>
-           | <core:memtype>
-           | <core:globaltype>
+import       ::= (import <name> <def-type>)
+def-type     ::= <instancetype>
+               | <moduletype>
+               | <core:functype>
+               | <core:tabletype>
+               | <core:memtype>
+               | <core:globaltype>
+instancetype ::= (instance <id>? (export <name> <def-type>)*)
+moduletype   ::= (module <id>? (import <name> <def-type>)* (export <name> <def-type>)*)
 ```
 The `core:`-prefixed productions refer to Core WebAssembly's [`functype`],
 [`tabletype`], [`memtype`] and [`globaltype`] productions.
@@ -372,7 +376,7 @@ As an example, the following adapter module instantiates its contained core
 module with imported `libc` module, matching the second-level name `malloc`
 against the declared exports of `libc`:
 ```wasm
-(adapter_module $M
+(adapter module $M
   (import "libc" (module $Libc
     (export "malloc" (func (param i32) (result i32)))
   ))
@@ -393,7 +397,7 @@ module's static global data clobbering another's).
 Adapter modules can also import whole instances, as a replacement for two-level
 imports. For example:
 ```wasm
-(adapter_module $N
+(adapter module $N
   (import "wasi:filesystem" (instance $libc
     (export "path_open" (func ... ))
     (export "read" (func ...))
@@ -444,8 +448,8 @@ and exports can be ignored. For example, the following adapter module
 validates, with the superfluous import `a` being ignored by `$N` and the
 superfluous export `d` being ignored by `$M`.
 ```wasm
-(adapter_module
-  (adapter_module $M
+(adapter module
+  (adapter module $M
     (import "i" (module
       (import "a" (func))
       (import "b" (func))
@@ -478,7 +482,7 @@ As an example, the following adapter module implements the WASI filesystem
 interface, exporting the instance with the name `wasi:filesystem` to provide a
 clear semantic connection between the implementation and the interface.
 ```wasm
-(adapter_module
+(adapter module
   (module $Core
     (func (export "path_open") ...)
     (func (export "read") ...)
@@ -496,23 +500,23 @@ Definitions.
 
 Alias definitions inject other modules' definitions into the current module's
 index spaces. Aliases can target either instance exports or the local
-definitions of an enclosing adapter module:
+definitions of an outer adapter module:
 ```
 alias        ::= (alias <alias-target>)
 alias-target ::= <instanceidx> <name> <alias-name>
-               | <outeridx> <localidx> <alias-name>
-alias-name   ::= (instance $id)
-               | (module $id)
-               | (func $id)
-               | (type $id)
-               | (table $id)
-               | (memory $id)
-               | (global $id)
+               | <outeridx> <idx> <alias-name>
+alias-name   ::= (instance <instanceidx>)
+               | (module <moduleidx>)
+               | (func <funcidx>)
+               | (type <typeidx>)
+               | (table <tableidx>)
+               | (memory <memidx>)
+               | (global <globalidx>)
 ```
-As an example of an `instance-target` alias, the following adapter module
+As an example of an instance-export alias, the following adapter module
 aliases the `f` export of `i` in order to pass it as the `foo` import of `M`:
 ```wasm
-(adapter_module
+(adapter module
   (import "M" (module $M
     (import "foo" (func))
   ))
@@ -524,15 +528,14 @@ aliases the `f` export of `i` in order to pass it as the `foo` import of `M`:
   (instance $m (instantiate $M (import "foo" (func $f))))
 )
 ```
-As an example of an `outer-target` alias, in the following adapter module,
-`$Inner` aliases `$Outer`'s `$Libc` module, avoiding the need to manually
-import it:
+As an example of an outer alias, in the following adapter module, `$Inner`
+aliases `$Outer`'s `$Libc` module, avoiding the need to manually import it:
 ```wasm
-(adapter_module $Outer
+(adapter module $Outer
   (module $Libc
     ...
   )
-  (adapter_module $Inner
+  (adapter module $Inner
     (alias $Outer $Libc (module $InnerLibc))
     (instance (instantiate $InnerLibc))
     ...
@@ -543,23 +546,22 @@ Here, `$Outer` and `$Libc` serve as symbolic [de Bruijn indices], ultimately
 resolving to a pair of integers: the number of enclosing adapter modules to
 skip, and the index of the target definition.
 
-Outer aliases are not simply space optimizations: since they replace what would
-otherwise be imports, they effectively allow [currying] module imports to
-produce modules with lower arity. Because of the currying effect and the
-prevalent assumption that modules are stateless values, outer aliases are
-restricted to only refer to module and type definitions. (In the future, outer
-aliases to all kinds of definitions could be allowed by recording the
-"statefulness" of the resulting bound module in the resulting bound module's
-type.)
+Adapter module definitions containing outer aliases effectively produce a
+module [closure] at instantiation time, including a copy of the outer-aliased
+definitions in the module value. Because of the prevalent assumption that
+module values are stateless, outer aliases are restricted to only refer to
+stateless module and type definitions. (In the future, outer aliases to all
+kinds of definitions could be allowed by recording the "statefulness" of the
+resulting bound module in the resulting bound module's type.)
 
 Additionally, to maintain the acyclicy of module instantiation, outer aliases
 are only allowed to refer to preceding outer definitions. Otherwise, modules
-could easily create incoherent (or coherent, but mind-binding) recursive
+could easily create incoherent (or coherent, but mind-bending) recursive
 definitions which would complicate tools and implementations.
 
-With both instance and outer aliases, the alias definition appends the target
-definition to the index space of the `alias-name` (so, e.g., 
-`(alias $i "foo" (func $f))` appends `foo` to the function index space, with
+With both instance and outer aliases, the alias definition inserts the target
+definition into the index space of the `alias-name` (so, e.g.,
+`(alias $i "foo" (func $f))` inserts `foo` into the function index space, with
 `$f` resolving to the new function index). The target definition kind is
 validated to actually match the kind of the index space. After that, the
 aliased definition can be used in all the same ways as a normal imported or
@@ -574,23 +576,52 @@ in an inverted form that puts the definition kind first:
 
 To reduce the syntactic burden in the text format, aliases come with syntactic
 sugar for implicitly declaring aliases inline, in the same manner as the Core
-WebAssembly's [`typeuse`]. For example, instead of writing the explicit alias
-definitions in this snippet:
+WebAssembly's [`typeuse`] sugar.
+
+For instance-export aliases, the inline sugar has the form:
+```
+(kind <instanceidx> <name>*)
+```
+where the `<name>*` is a sequence of exports projected from the `<instanceidx>`.
+For example, the following snippet using inline alias sugar:
+```wasm
+(instance $j (instantiate $J (import "f" (func $i "f"))))
+(export "x" (func $j "g" "h"))
+```
+is equivalent to the expanded explicit aliases:
 ```wasm
 (alias $i "f" (func $f_alias))
 (instance $j (instantiate $J (import "f" (func $f_alias))))
 (alias $j "g" (func $g_alias))
-(export "x" (func $g_alias))
+(alias $g_alias "h" (func $h_alias))
+(export "x" (func $h_alias))
 ```
-we could instead the following syntactic sugar:
+
+For outer aliases, the inline sugar is simply the identifier of the outer
+definition, resolved using normal lexical scoping rules. For example, the
+following adapter module:
 ```wasm
-(instance $j (instantiate $J (import "f" (func $i "f"))))
-(export "x" (func $j "g"))
+(adapter module $M
+  (module $N ...)
+  (adapter module
+    (alias $M $N (module $N))
+    (instance (instantiate $N))
+  )
+)
+```
+can be equivalently written:
+```wasm
+(adapter module
+  (module $N ...)
+  (adapter module
+    (instance (instantiate $N))
+  )
+)
 ```
 
 Using aliases, an adapter module can re-export individual functions:
 ```wasm
-(adapter_module
+(adapter module
   (module $Core1
     (func (export "foo") ...)
   )
@@ -610,7 +641,7 @@ Addititionally, aliases are useful in combination with instance
 definitions for being able to synthesize instances from individual
 definitions. For example:
 ```wasm
-(adapter_module
+(adapter module
   (import "x" (instance $x
     (export "foo" (func))
     (export "bar" (func))
@@ -644,7 +675,7 @@ type ::= (type $id <def-type>)
 For example, using both type and alias definitions, the type of `$Libc`
 is deduplicated in the following adapter module:
 ```wasm
-(adapter_module
+(adapter module
   (type $LibcModule (module
     (export "memory" (memory 1))
     (export "malloc" (func (param i32) (result i32)))
@@ -674,7 +705,7 @@ into a module by writing `(export $InstanceType)` (without a `<name>` before
 the `$InstanceType`). For example, this sugar could be used to share between
 the `Libc` instance and module types:
 ```wasm
-(adapter_module
+(adapter module
   (type $LibcInstance (instance
     (export "memory" (memory 1))
     (export "malloc" (func (param i32) (result i32)))
@@ -726,7 +757,7 @@ is meant to be layered on top of a Core WebAssembly implementation.
 
 As an example, this adapter module:
 ```wasm
-(adapter_module
+(adapter module
   (import "a" (instance $a (export "f" (func))))
   (module $M
     (import "a" "f" (func))
@@ -773,7 +804,7 @@ instance imports and module imports. There is a fairly natural exension for all
 of these features. For example, the adapter module:
 ```wasm
 ;; a.wasm
-(adapter_module
+(adapter module
   (import "one" (func))
   (import "two" (instance
     (export "three" (instance
@@ -827,7 +858,7 @@ instantiating that module. Since this functionality is also useful for JS,
 there is already a proposal to add this to ESM called [Import Reflection].
 With this proposal, a module import:
 ```wasm
-(adapter_module
+(adapter module
   (import "./foo.wasm" (module $Foo))
 )
 ```
@@ -871,7 +902,7 @@ import Foo from "./foo.wasm" as "wasm-module";
 [Virtualize]: https://en.wikipedia.org/wiki/Virtualization
 [Mocking]: https://en.wikipedia.org/wiki/Mock_object
 [De Bruijn Indices]: https://en.wikipedia.org/wiki/De_Bruijn_index
-[Currying]: https://en.wikipedia.org/wiki/Currying
+[Closure]: https://en.wikipedia.org/wiki/Closure_(computer_programming)
 [PIC]: https://en.wikipedia.org/wiki/Position-independent_code
 
 [Figma plugins]: https://www.figma.com/blog/an-update-on-plugin-security/

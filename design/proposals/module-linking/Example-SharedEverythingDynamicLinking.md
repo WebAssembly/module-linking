@@ -108,7 +108,7 @@ int main(int argc, char* argv[]) {
 
 When compiled with `clang zipper.c`, we get a `$Zipper` module:
 ```wasm
-(adapter_module $Zipper
+(adapter module $Zipper
   (type $LibcInstance (instance
     (export "memory" (memory 1))
     (export "malloc" (func (param i32) (result i32)))
@@ -192,7 +192,7 @@ Compiling with `clang -shared libimg.c` produces a `$Libimg` module:
 The `imgmgk` component is symmetric to the `zipper` component; the main
 difference in the output is the addition of the `libzip` dependency:
 ```wasm
-(adapter_module $Imgmgk
+(adapter module $Imgmgk
   (import "libc" (module $Libc ...))
   (import "libzip" (module $Libzip ...))
   (import "libimg" (module $Libimg ...))
@@ -214,7 +214,7 @@ Finally, we can create the `app` component by composing the `zipper` and `imgmgk
 components. Let's say we want to bundle all the dependencies to create a single
 file with no external dependencies; a bundler could produce the following:
 ```wasm
-(adapter_module $App
+(adapter module $App
   (module $Libc   ... copied inline)
   (module $Libzip ... copied inline)
   (module $Libimg ... copied inline)
@@ -248,7 +248,7 @@ Alternatively, a Web-targeted bundler could choose to take advantage of HTTP
 caching by using relative URLs that are fetched and cached by the browser via
 [ESM-integration]:
 ```wasm
-(adapter_module $App
+(adapter module $App
   (import "./libc.wasm" (module $Libc ...))
   (import "./libzip.wasm" (module $Libzip ...))
   (import "./libimg.wasm" (module $Libimg ...))
@@ -296,7 +296,7 @@ void* LIBZIP(zip)(void* in, size_t in_size, size_t* out_size);
 
 When `zipper.c` is first compiled, it will include these versions in its imports:
 ```wasm
-(adapter_module $Zipper
+(adapter module $Zipper
   (type $LibcInstance (instance
     (memory (export "memory") 1)
     (func (export "malloc") (param i32) (result i32))
@@ -322,7 +322,7 @@ say `zipper` is recompiled before `libzip`, so that `libzip` is still importing
 mentions two different version numbers and instance types of `libc`:
 
 ```wasm
-(adapter_module $Zipper
+(adapter module $Zipper
   (import "libc-1.1.0" (module $Libc
     (memory (export "memory") 1)
     (func (export "malloc") (param i32) (result i32))
@@ -410,7 +410,7 @@ Lastly, a toolchain can link these together into a whole program by emitting
 a wrapper adapter module that supplies both `$A` and `$B` with a shared
 function table and `bar-index` mutable global.
 ```wat
-(adapter_module $Program
+(adapter module $Program
   (import "./A.wasm" (module $A ...))
   (import "./B.wasm" (module $B ...))
   (module $Linkage

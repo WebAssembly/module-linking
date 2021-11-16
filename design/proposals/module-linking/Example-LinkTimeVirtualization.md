@@ -38,7 +38,7 @@ implementation of all the `wasi:filesystem` operations:
 We can now write the parent module as an adapter module that composes `$Child`
 and `$VirtualFS`:
 ```wasm
-(adapter_module $Parent
+(adapter module $Parent
   (type $FSInstance (instance
     (export "read" (func (param i32 i32 i32) (result i32)))
     (export "write" (func (param i32 i32 i32) (result i32)))
@@ -74,7 +74,7 @@ Here, we assume that the host understands relative file paths. To remove this ho
 assumption, a tool could replace the imports definitions in `$Parent` with
 [module definitions](Explainer.md#module-definitions):
 ```wasm
-(adapter_module $Parent
+(adapter module $Parent
   (type $FSInstance         ... same as above)
   (import "wasi:filesystem" ... same as above)
 
