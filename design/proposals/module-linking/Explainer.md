@@ -544,7 +544,10 @@ aliases `$Outer`'s `$Libc` module, avoiding the need to manually import it:
 ```
 Here, `$Outer` and `$Libc` serve as symbolic [de Bruijn indices], ultimately
 resolving to a pair of integers: the number of enclosing adapter modules to
-skip, and the index of the target definition.
+skip, and the index of the target definition. In particular, this number can be
+0, in which case the outer alias refers to the current module, allowing a
+single module to alias its own definitions at multiple indices in the index
+space (which can be [useful to tools][Issue-30]).
 
 Adapter module definitions containing outer aliases effectively produce a
 module [closure] at instantiation time, including a copy of the outer-aliased
@@ -908,3 +911,5 @@ import Foo from "./foo.wasm" as "wasm-module";
 [Figma plugins]: https://www.figma.com/blog/an-update-on-plugin-security/
 [Attenuate]: http://cap-lore.com/CapTheory/Patterns/Attenuation.html
 [Default Export]: https://developer.mozilla.org/en-US/docs/web/javascript/reference/statements/export#Description
+
+[Issue-30]: https://github.com/WebAssembly/module-linking/issues/30
