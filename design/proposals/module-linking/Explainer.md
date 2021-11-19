@@ -833,6 +833,10 @@ WebAssembly.instantiateStreaming(fetch('./a.wasm'), {
 where `instantiateStreaming` checks that the module created from `code` exports
 a function `six` (and *may* import a function `five`).
 
+Additionally, the JS API `WebAssembly.Module.imports()` and `exports()`
+functions would need to be extended to include the new instance and module
+types in the `kind` fields.
+
 Lastly, considering the new exportable types, a module export would naturally
 produce a `WebAssembly.Module` object. For an instance export, the JavaScript
 correspondence already established by [ESM-integration] is a [Namespace Object].
