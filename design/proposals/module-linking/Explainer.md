@@ -909,7 +909,6 @@ objects for exports as described above for the JS API.
 [Module Record]: https://tc39.es/ecma262/#sec-abstract-module-records
 [Module Specifier]: https://tc39.es/ecma262/multipage/ecmascript-language-scripts-and-modules.html#prod-ModuleSpecifier
 [Named Imports]: https://tc39.es/ecma262/multipage/ecmascript-language-scripts-and-modules.html#prod-NamedImports
-[`GetModuleNamespace()`]: https://tc39.es/ecma262/multipage/ecmascript-language-scripts-and-modules.html#sec-getmodulenamespace
 [Imported Default Binding]: https://tc39.es/ecma262/multipage/ecmascript-language-scripts-and-modules.html#prod-ImportedDefaultBinding
 
 [Core Concepts]: https://webassembly.github.io/spec/core/intro/overview.html#concepts
