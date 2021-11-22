@@ -878,17 +878,7 @@ two-level imports with existing ESM-integration. Since the exports of an
 instance type can themselves be instance types, this process must be performed
 recursively.
 
-For imports of type `(global externref)` (i.e., an immutable core WebAssembly
-global storing a value of type `externref`), the imported Module Record is
-first converted to a [Namespace Object] via [`GetModuleNamespace()`] and then
-converted to a `(global externref)` as a normal JavaScript value. This allows
-the importing adapter module to dynamically access the fields of the
-Namespace Object by calling other imported functions (such as `Object.get()`).
-In the future, other compatible types (e.g., `handle` Interface Types) could be
-included in this case.
-
-Otherwise, if the import cannot accept a Namespace Object (and would error
-otherwise), the import is treated like a JavaScript [Imported Default Binding]
+Otherwise, the import is treated like a JavaScript [Imported Default Binding]
 and the Module Record is converted to its default value. This allows, for
 example, a single level import of a function:
 ```wasm
