@@ -148,6 +148,11 @@ relevant:
   run. Switching to dynamic linking should not hurt hosts' ability to perform
   the same degree of optimization.
 
+* **No global registries at runtime**: A number of existing dependency
+  resolution mechanisms with similar use cases as Module Linking depend on a
+  shared mutable registry into which, at runtime, modules are registered and
+  names are resolved.
+
 
 ## Walkthrough
 
