@@ -1,4 +1,4 @@
-# Module Linking Binary Format (sketch)
+# Module Linking Binary Format
 
 This document presents the binary format of the adapter modules in the
 [attribute grammar] style of the Core WebAssembly [text format]. Additionally,
