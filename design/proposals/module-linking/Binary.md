@@ -80,13 +80,13 @@ Notes:
 
 (See [import definitions](Explainer.md#import-definitions) in the explainer.)
 ```
-import   ::= nm:<name> dt:<def-type> => (import nm dt)
-def-type ::= 0x00 x:typeidx          => (instance x)
-           | 0x01 x:typeidx          => (module x)
-           | 0x02 x:typeidx          => (func x)
-           | 0x03 tt:tabletype       => (table tt)
-           | 0x04 mt:memtype         => (memory mt)
-           | 0x05 gt:globaltype      => (global gt)
+import  ::= nm:<name> dt:<deftype> => (import nm dt)
+deftype ::= 0x00 x:typeidx         => (instance x)
+          | 0x01 x:typeidx         => (module x)
+          | 0x02 x:typeidx         => (func x)
+          | 0x03 tt:tabletype      => (table tt)
+          | 0x04 mt:memtype        => (memory mt)
+          | 0x05 gt:globaltype     => (global gt)
 ```
 Notes:
 * Unlike the text format, which allows module/instance/function types to be
@@ -138,15 +138,15 @@ Notes:
 
 (See [type definitions](Explainer.md#type-definitions) in the explainer.)
 ```
-type               ::= 0x7f itd*:vec(<instance-type-decl>)        -> (instance itd*)
-                     | 0x7e mtd*:vec(<module-type-decl>)          -> (module mtd*)
-                     | 0x7d p*:vec(<val-type>) r*:vec(<val-type>) -> (func (param p)* (result r)*)
-instance-type-decl ::= 0x01 t:<type>                              -> t
-                     | 0x05 a:<alias>                             -> a
-                     | 0x06 nm:<name> dt:<def-type>               -> (export nm dt)
-module-type-decl   ::= itd:<instance-type-decl>                   -> itd
-                     | 0x02 i:<import>                            -> i
-val-type           ::= 0x00 vt:<core:valtype>                     -> vt
+type               ::= 0x7f itd*:vec(<instance-type-decl>)      -> (instance itd*)
+                     | 0x7e mtd*:vec(<module-type-decl>)        -> (module mtd*)
+                     | 0x7d p*:vec(<valtype>) r*:vec(<valtype>) -> (func (param p)* (result r)*)
+instance-type-decl ::= 0x01 t:<type>                            -> t
+                     | 0x05 a:<alias>                           -> a
+                     | 0x06 nm:<name> dt:<def-type>             -> (export nm dt)
+module-type-decl   ::= itd:<instance-type-decl>                 -> itd
+                     | 0x02 i:<import>                          -> i
+valtype            ::= 0x00 vt:<core:valtype>                   -> vt
 ```
 Notes:
 * Instance and modules types create a fresh type index spaces that are
@@ -159,9 +159,9 @@ Notes:
   will be needed and this restriction will be relaxed.
 * To avoid redefining the whole binary format of Core WebAssembly's [`valtype`]
   and to allow implementation reuse, the binary format for adapter modules'
-  `val-type` embeds `core:valtype`. A `0x00` prefix is used so that future
+  `valtype` embeds `core:valtype`. A `0x00` prefix is used so that future
   additions to `core:valtype` cannot conflict with future additions to
-  `val-type` (viz., in Interface Types).
+  `valtype` (viz., in Interface Types).
 * The normal index space validation rules for adapter modules described above
   ensure that module and instance type definitions are acyclic.
 

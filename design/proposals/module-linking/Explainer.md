@@ -354,15 +354,15 @@ Imports in adapter modules serve the same role as in core modules, but with an
 expanded set of importable types that allow whole modules and instances to be
 imported:
 ```
-import       ::= (import <name> <def-type>)
-def-type     ::= <instancetype>
+import       ::= (import <name> <deftype>)
+deftype      ::= <instancetype>
                | <moduletype>
                | <core:functype>
                | <core:tabletype>
                | <core:memtype>
                | <core:globaltype>
-instancetype ::= (instance <id>? (export <name> <def-type>)*)
-moduletype   ::= (module <id>? (import <name> <def-type>)* (export <name> <def-type>)*)
+instancetype ::= (instance <id>? (export <name> <deftype>)*)
+moduletype   ::= (module <id>? (import <name> <deftype>)* (export <name> <deftype>)*)
 ```
 The `core:`-prefixed productions refer to Core WebAssembly's [`functype`],
 [`tabletype`], [`memtype`] and [`globaltype`] productions.
@@ -676,9 +676,9 @@ modules, but with an expanded set of definable types that allow module and
 instance types. Type definitions allow these compound types to be reused to
 avoid duplication.
 ```
-type ::= (type $id <def-type>)
+type ::= (type $id <deftype>)
 ```
-(Note: `def-type` is defined [above](#import-definitions).)
+(Note: `deftype` is defined [above](#import-definitions).)
 
 For example, using both type and alias definitions, the type of `$Libc`
 is deduplicated in the following adapter module:
