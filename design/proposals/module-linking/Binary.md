@@ -138,30 +138,26 @@ Notes:
 
 (See [type definitions](Explainer.md#type-definitions) in the explainer.)
 ```
-type               ::= 0x7f itd*:vec(<instance-type-decl>)      -> (instance itd*)
-                     | 0x7e mtd*:vec(<module-type-decl>)        -> (module mtd*)
-                     | 0x7d p*:vec(<valtype>) r*:vec(<valtype>) -> (func (param p)* (result r)*)
-instance-type-decl ::= 0x01 t:<type>                            -> t
-                     | 0x05 a:<alias>                           -> a
-                     | 0x06 nm:<name> dt:<def-type>             -> (export nm dt)
-module-type-decl   ::= itd:<instance-type-decl>                 -> itd
-                     | 0x02 i:<import>                          -> i
-valtype            ::= 0x00 vt:<core:valtype>                   -> vt
+type             ::= 0x7f it:<instancetype>       -> it
+                   | 0x7e mt:<moduletype>         -> mt
+                   | 0x7d ft:<core:functype>      -> ft
+instancetype     ::= itd*:vec(<instancetype-def>) -> (instance itd*)
+instancetype-def ::= 0x01 t:<type>                -> t
+                   | 0x05 a:<alias>               -> a
+                   | 0x06 nm:<name> dt:<deftype>  -> (export nm dt)
+moduletype       ::= mtd*:vec(<moduletype-def>)   -> (module mtd*)
+moduletype-def   ::= itd:<instance-type-def>      -> itd
+                   | 0x02 i:<import>              -> i
 ```
 Notes:
-* Instance and modules types create a fresh type index spaces that are
+* Instance and modules types create fresh type index spaces that are
   populated and referenced by their contents. E.g., for a module type that
-  imports a function, the `import` `module-type-decl` must be preceded by
-  either a `type` or `alias` `module-type-decl` that adds the function type to
+  imports a function, the `import` `moduletype-def` must be preceded by
+  either a `type` or `alias` `moduletype-def` that adds the function type to
   the type index space.
 * Currently, the only allowed form of `alias` in instance and module types
   is `(alias outer ct li (type))`. In the future, other kinds of aliases
   will be needed and this restriction will be relaxed.
-* To avoid redefining the whole binary format of Core WebAssembly's [`valtype`]
-  and to allow implementation reuse, the binary format for adapter modules'
-  `valtype` embeds `core:valtype`. A `0x00` prefix is used so that future
-  additions to `core:valtype` cannot conflict with future additions to
-  `valtype` (viz., in Interface Types).
 * The normal index space validation rules for adapter modules described above
   ensure that module and instance type definitions are acyclic.
 
@@ -172,4 +168,3 @@ Notes:
 [`section`]: https://webassembly.github.io/spec/core/binary/modules.html#sections
 [`module`]: https://webassembly.github.io/spec/core/binary/modules.html#binary-module
 [`name`]: https://webassembly.github.io/spec/core/binary/values.html#binary-name
-[`valtype`]: https://webassembly.github.io/spec/core/binary/types.html#value-types
