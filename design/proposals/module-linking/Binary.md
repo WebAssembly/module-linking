@@ -138,16 +138,16 @@ Notes:
 
 (See [type definitions](Explainer.md#type-definitions) in the explainer.)
 ```
-type             ::= 0x7f it:<instancetype>       -> it
-                   | 0x7e mt:<moduletype>         -> mt
-                   | 0x7d ft:<core:functype>      -> ft
-instancetype     ::= itd*:vec(<instancetype-def>) -> (instance itd*)
-instancetype-def ::= 0x01 t:<type>                -> t
-                   | 0x05 a:<alias>               -> a
-                   | 0x06 nm:<name> dt:<deftype>  -> (export nm dt)
-moduletype       ::= mtd*:vec(<moduletype-def>)   -> (module mtd*)
-moduletype-def   ::= itd:<instance-type-def>      -> itd
-                   | 0x02 i:<import>              -> i
+type             ::= 0x7f it:<instancetype>       => it
+                   | 0x7e mt:<moduletype>         => mt
+                   | 0x7d ft:<core:functype>      => ft
+instancetype     ::= itd*:vec(<instancetype-def>) => (instance itd*)
+instancetype-def ::= 0x01 t:<type>                => t
+                   | 0x05 a:<alias>               => a
+                   | 0x06 nm:<name> dt:<deftype>  => (export nm dt)
+moduletype       ::= mtd*:vec(<moduletype-def>)   => (module mtd*)
+moduletype-def   ::= itd:<instance-type-def>      => itd
+                   | 0x02 i:<import>              => i
 ```
 Notes:
 * Instance and modules types create fresh type index spaces that are
