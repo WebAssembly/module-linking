@@ -80,13 +80,13 @@ Notes:
 
 (See [import definitions](Explainer.md#import-definitions) in the explainer.)
 ```
-import  ::= nm:<name> dt:<deftype> => (import nm dt)
-deftype ::= 0x00 x:typeidx         => (instance x)
-          | 0x01 x:typeidx         => (module x)
-          | 0x02 x:typeidx         => (func x)
-          | 0x03 tt:tabletype      => (table tt)
-          | 0x04 mt:memtype        => (memory mt)
-          | 0x05 gt:globaltype     => (global gt)
+import  ::= nm:<name> dt:<deftype>    => (import nm dt)
+deftype ::= 0x00 i:<typeidx>          => (instance instance-index-space[i])
+          | 0x01 i:<typeidx>          => (module module-index-space[i])
+          | 0x02 i:<typeidx>          => (func func-index-space[i])
+          | 0x03 tt:<core:tabletype>  => (table tt)
+          | 0x04 mt:<core:memtype>    => (memory mt)
+          | 0x05 gt:<core:globaltype> => (global gt)
 ```
 Notes:
 * Unlike the text format, which allows module/instance/function types to be
