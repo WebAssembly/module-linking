@@ -579,7 +579,7 @@ For symmetry with [imports][func-import-abbrev], aliases can be written
 in an inverted form that puts the definition kind first:
 ```wasm
 (func $f (import "i" "f")) ≡ (import "i" "f" (func $f))  ;; (existing)
-(func $g (alias $i "g1"))  ≡ (alias $g "g1" (func $g))   ;; (new)
+(func $g (alias $i "g1"))  ≡ (alias $i "g1" (func $g))   ;; (new)
 ```
 
 To reduce the syntactic burden in the text format, aliases come with syntactic
