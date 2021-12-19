@@ -455,7 +455,7 @@ superfluous export `d` being ignored by `$M`.
 ```wasm
 (adapter module
   (adapter module $M
-    (import "superfluous" (module
+    (import "i" (module
       (import "a" (func))
       (import "b" (func))
       (export "c" (func))
