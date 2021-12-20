@@ -461,7 +461,7 @@ superfluous export `d` being ignored by `$M`.
       (export "c" (func))
     ))
   )
-  (module $N
+  (adapter module $N
     (import "b" (func))
     (func (export "c") ...)
     (func (export "d") ...)
