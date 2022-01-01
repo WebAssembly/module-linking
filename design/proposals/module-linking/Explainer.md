@@ -676,7 +676,7 @@ modules, but with an expanded set of definable types that allow module and
 instance types. Type definitions allow these compound types to be reused to
 avoid duplication.
 ```
-type ::= (type $id <deftype>)
+type ::= (type $id? <deftype>)
 ```
 (Note: `deftype` is defined [above](#import-definitions).)
 
