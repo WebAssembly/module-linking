@@ -510,13 +510,13 @@ definitions of an outer adapter module:
 alias        ::= (alias <alias-target>)
 alias-target ::= <instanceidx> <name> <alias-name>
                | <outeridx> <idx> <alias-name>
-alias-name   ::= (instance <instanceidx>)
-               | (module <moduleidx>)
-               | (func <funcidx>)
-               | (type <typeidx>)
-               | (table <tableidx>)
-               | (memory <memidx>)
-               | (global <globalidx>)
+alias-name   ::= (instance <id>?)
+               | (module <id>?)
+               | (func <id>?)
+               | (type <id>?)
+               | (table <id>?)
+               | (memory <id>?)
+               | (global <id>?)
 ```
 As an example of an instance-export alias, the following adapter module
 aliases the `f` export of `i` in order to pass it as the `foo` import of `M`:
@@ -676,7 +676,7 @@ modules, but with an expanded set of definable types that allow module and
 instance types. Type definitions allow these compound types to be reused to
 avoid duplication.
 ```
-type ::= (type $id <deftype>)
+type ::= (type $id? <deftype>)
 ```
 (Note: `deftype` is defined [above](#import-definitions).)
 
