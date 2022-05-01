@@ -1,3 +1,10 @@
+**Note: This proposal is currently inactive, with active work having moved on to
+the [component-model](https://github.com/WebAssembly/component-model) repo. The
+proposal could become active again in the future if there is renewed interest
+in adding the module linking concepts to Core WebAssembly.**
+
+----
+
 This explainer introduces the Module Linking proposal, which allows WebAssembly
 modules to define, import and export modules and instances.
 
