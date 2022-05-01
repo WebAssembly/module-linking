@@ -1,6 +1,11 @@
-[![Build Status](https://travis-ci.org/WebAssembly/spec.svg?branch=master)](https://travis-ci.org/WebAssembly/spec)
-
 # Module Linking Proposal for WebAssembly
+
+**Note: This proposal is currently inactive, with work having moved on to
+the [component-model](https://github.com/WebAssembly/component-model) repo. The
+proposal could become active again in the future if there is renewed interest
+in adding the module linking concepts to Core WebAssembly.**
+
+----
 
 This repository is a clone of [github.com/WebAssembly/spec/](https://github.com/WebAssembly/spec/).
 It is meant for discussion, prototype specification and implementation of a
