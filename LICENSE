@@ -1,10 +1,8 @@
-Please see the LICENSE file for particular directories for the terms applicable
-to that directory and its relative sub-directories.
+Please see the LICENSE file in each top-level directory for the terms applicable to that directory and its relative sub-directories.
 
 The relevant directories and licenses are:
 
-design/           - Apache License 2.0
-
-(Other directories will be added when the [module-linking] repository merges.)
-
-[module-linking]: https://github.com/webassembly/module-linking/
+document/    - W3C Software and Document Notice and License
+interpreter/ - Apache License 2.0
+test/        - Apache License 2.0
+papers/      - Creative Commons Attribution 4.0 International License
